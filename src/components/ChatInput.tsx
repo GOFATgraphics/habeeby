@@ -53,13 +53,13 @@ export function ChatInput({ onSend, isLoading, isRecording, onStartRecording, on
   };
 
   return (
-    <div className="border-t border-border/50 bg-glass-strong p-4">
+    <div className="border-t border-border/50 bg-glass-strong px-3 py-3 md:p-4">
       <div className="flex items-end gap-2 max-w-3xl mx-auto">
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             variant="ghost"
             size="icon"
-            className={`flex-shrink-0 rounded-full border transition-all duration-300 ${
+            className={`flex-shrink-0 rounded-full border h-9 w-9 transition-all duration-300 ${
               isRecording
                 ? 'border-primary text-primary glow-cyan animate-pulse-gentle'
                 : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary'
@@ -83,7 +83,7 @@ export function ChatInput({ onSend, isLoading, isRecording, onStartRecording, on
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Type your message..."
-          className="min-h-[44px] max-h-[120px] resize-none rounded-2xl bg-muted/50 border-border/50 focus-visible:ring-1 focus-visible:ring-primary text-sm"
+          className="min-h-[42px] max-h-[100px] resize-none rounded-2xl bg-muted/50 border-border/50 focus-visible:ring-1 focus-visible:ring-primary text-sm py-2.5 px-3"
           rows={1}
           disabled={isLoading}
         />
@@ -91,7 +91,7 @@ export function ChatInput({ onSend, isLoading, isRecording, onStartRecording, on
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             size="icon"
-            className="flex-shrink-0 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground glow-cyan transition-all duration-300"
+            className="flex-shrink-0 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground glow-cyan transition-all duration-300 h-9 w-9 active:scale-95"
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
           >
