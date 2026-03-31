@@ -1,4 +1,5 @@
 import { useState, useRef, KeyboardEvent } from 'react';
+import { motion } from 'framer-motion';
 import { Send, Mic, MicOff, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,9 +37,7 @@ export function ChatInput({ onSend, isLoading, isRecording, onStartRecording, on
       setIsTranscribing(true);
       try {
         const text = await onStopRecording();
-        if (text) {
-          setInput(prev => prev ? `${prev} ${text}` : text);
-        }
+        if (text) setInput(prev => prev ? `${prev} ${text}` : text);
       } catch (err) {
         console.error('Transcription error:', err);
       } finally {
@@ -54,51 +53,55 @@ export function ChatInput({ onSend, isLoading, isRecording, onStartRecording, on
   };
 
   return (
-    <div className="border-t border-border bg-background p-4">
+    <div className="border-t border-border/50 bg-glass-strong p-4">
       <div className="flex items-end gap-2 max-w-3xl mx-auto">
-        {/* Mic button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`flex-shrink-0 rounded-full ${isRecording ? 'text-destructive animate-pulse-gentle' : 'text-muted-foreground'}`}
-          onClick={handleMicClick}
-          disabled={isLoading || isTranscribing}
-          title={isRecording ? 'Stop recording' : 'Start voice input'}
-        >
-          {isTranscribing ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : isRecording ? (
-            <MicOff className="w-5 h-5" />
-          ) : (
-            <Mic className="w-5 h-5" />
-          )}
-        </Button>
+        <motion.div whileTap={{ scale: 0.9 }}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`flex-shrink-0 rounded-full border transition-all duration-300 ${
+              isRecording
+                ? 'border-primary text-primary glow-cyan animate-pulse-gentle'
+                : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary'
+            }`}
+            onClick={handleMicClick}
+            disabled={isLoading || isTranscribing}
+          >
+            {isTranscribing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isRecording ? (
+              <MicOff className="w-4 h-4" />
+            ) : (
+              <Mic className="w-4 h-4" />
+            )}
+          </Button>
+        </motion.div>
 
-        {/* Text input */}
         <Textarea
           ref={textareaRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Share what's on your heart, ya habibi..."
-          className="min-h-[44px] max-h-[120px] resize-none rounded-2xl bg-muted border-0 focus-visible:ring-1 focus-visible:ring-primary"
+          placeholder="Type your message..."
+          className="min-h-[44px] max-h-[120px] resize-none rounded-2xl bg-muted/50 border-border/50 focus-visible:ring-1 focus-visible:ring-primary text-sm"
           rows={1}
           disabled={isLoading}
         />
 
-        {/* Send button */}
-        <Button
-          size="icon"
-          className="flex-shrink-0 rounded-full bg-primary hover:bg-primary/90"
-          onClick={handleSend}
-          disabled={!input.trim() || isLoading}
-        >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-        </Button>
+        <motion.div whileTap={{ scale: 0.9 }}>
+          <Button
+            size="icon"
+            className="flex-shrink-0 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground glow-cyan transition-all duration-300"
+            onClick={handleSend}
+            disabled={!input.trim() || isLoading}
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </Button>
+        </motion.div>
       </div>
     </div>
   );
