@@ -48,34 +48,34 @@ const Chat = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-background bg-grid-pattern relative">
+    <div className="flex flex-col h-full bg-background bg-grid-pattern relative overflow-hidden">
       {/* Ambient orb */}
-      <div className="absolute top-[-30%] right-[-20%] w-[500px] h-[500px] orb-gradient rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-[-30%] right-[-20%] w-[400px] h-[400px] orb-gradient rounded-full blur-3xl pointer-events-none" />
 
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-glass-strong relative z-10">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground" onClick={() => navigate('/')}>
+      <header className="flex items-center justify-between px-3 py-2.5 border-b border-border/50 bg-glass-strong relative z-10 safe-top flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground h-8 w-8" onClick={() => navigate('/')}>
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center glow-cyan">
+            <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center glow-cyan">
               <span className="text-sm">🌙</span>
             </div>
             <div>
               <h1 className="font-display text-sm font-semibold leading-tight text-foreground">Habibi</h1>
-              <p className="text-[10px] text-muted-foreground font-mono">QURAN COMPANION</p>
+              <p className="text-[10px] text-muted-foreground font-mono leading-none">QURAN COMPANION</p>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
           {/* Mode toggle */}
-          <div className="flex bg-muted/50 rounded-full p-0.5 mr-2">
+          <div className="flex bg-muted/50 rounded-full p-0.5 mr-1">
             <Button
               variant="ghost"
               size="sm"
-              className={`rounded-full h-7 px-3 text-xs transition-all ${mode === 'text' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
+              className={`rounded-full h-7 px-2.5 text-xs transition-all ${mode === 'text' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
               onClick={() => setMode('text')}
             >
               <MessageSquare className="w-3 h-3 mr-1" />
@@ -84,7 +84,7 @@ const Chat = () => {
             <Button
               variant="ghost"
               size="sm"
-              className={`rounded-full h-7 px-3 text-xs transition-all ${mode === 'voice' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
+              className={`rounded-full h-7 px-2.5 text-xs transition-all ${mode === 'voice' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
               onClick={() => setMode('voice')}
             >
               <Mic className="w-3 h-3 mr-1" />
@@ -106,21 +106,21 @@ const Chat = () => {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 relative z-10">
-        <div className="max-w-3xl mx-auto space-y-4">
+      <div className="flex-1 overflow-y-auto px-3 md:px-4 py-4 md:py-6 relative z-10 min-h-0">
+        <div className="max-w-3xl mx-auto space-y-3 md:space-y-4">
           {messages.length === 0 && !showOnboarding && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center py-20"
+              className="text-center py-16 md:py-20"
             >
-              <div className="w-16 h-16 mx-auto rounded-full bg-glass border border-border flex items-center justify-center mb-4 animate-float glow-cyan">
-                <span className="text-2xl">🌙</span>
+              <div className="w-14 h-14 md:w-16 md:h-16 mx-auto rounded-full bg-glass border border-border flex items-center justify-center mb-4 animate-float glow-cyan">
+                <span className="text-xl md:text-2xl">🌙</span>
               </div>
-              <h2 className="font-display text-xl text-foreground mb-2">
+              <h2 className="font-display text-lg md:text-xl text-foreground mb-2">
                 Assalamu Alaikum{userData?.name ? `, ${userData.name}` : ''}
               </h2>
-              <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+              <p className="text-muted-foreground text-sm max-w-xs md:max-w-sm mx-auto">
                 {mode === 'voice'
                   ? 'Tap the orb below to start a voice conversation.'
                   : 'Type a message or switch to voice mode to begin.'}
@@ -141,10 +141,10 @@ const Chat = () => {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex gap-3"
+              className="flex gap-2 md:gap-3"
             >
-              <div className="w-8 h-8 rounded-full bg-secondary/10 border border-secondary/30 flex items-center justify-center text-xs font-mono text-secondary">AI</div>
-              <div className="bg-glass rounded-2xl rounded-tl-sm px-4 py-3">
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-secondary/10 border border-secondary/30 flex items-center justify-center text-[10px] md:text-xs font-mono text-secondary flex-shrink-0">AI</div>
+              <div className="bg-glass rounded-2xl rounded-tl-sm px-3 md:px-4 py-2.5 md:py-3">
                 <div className="flex gap-1.5">
                   {[0, 1, 2].map(i => (
                     <motion.span
@@ -172,7 +172,7 @@ const Chat = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
-            className="border-t border-border/50 bg-glass-strong p-8 flex justify-center relative z-10"
+            className="border-t border-border/50 bg-glass-strong p-6 md:p-8 flex justify-center relative z-10 safe-bottom flex-shrink-0"
           >
             <VoiceOrb
               isRecording={speechToSpeech.isRecording}
@@ -189,7 +189,7 @@ const Chat = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
-            className="relative z-10"
+            className="relative z-10 flex-shrink-0 safe-bottom"
           >
             <ChatInput
               onSend={sendMessage}
