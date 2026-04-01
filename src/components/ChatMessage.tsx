@@ -1,16 +1,21 @@
-import { motion } from 'framer-motion';
-import { Volume2, VolumeX } from 'lucide-react';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Volume2, VolumeX, SmilePlus } from 'lucide-react';
 import { ChatMessage as ChatMessageType } from '@/hooks/useChat';
 import { Button } from '@/components/ui/button';
+
+const QUICK_EMOJIS = ['❤️', '👍', '🤲', '🌙', '✨', '😊', '🔥', '💎'];
 
 interface ChatMessageProps {
   message: ChatMessageType;
   isPlaying: boolean;
   onPlayTTS: (text: string, messageId: string) => void;
+  onReact: (messageId: string, emoji: string) => void;
 }
 
-export function ChatMessage({ message, isPlaying, onPlayTTS }: ChatMessageProps) {
+export function ChatMessage({ message, isPlaying, onPlayTTS, onReact }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  const [showPicker, setShowPicker] = useState(false);
 
   const formatContent = (text: string) => {
     return text
@@ -19,12 +24,14 @@ export function ChatMessage({ message, isPlaying, onPlayTTS }: ChatMessageProps)
       .replace(/\n/g, '<br/>');
   };
 
+  const reactions = message.reactions || [];
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className={`flex gap-2 md:gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+      className={`flex gap-2 md:gap-3 group ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
     >
       {/* Avatar */}
       <div className={`flex-shrink-0 w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center text-[10px] md:text-xs font-mono border ${
@@ -35,32 +42,101 @@ export function ChatMessage({ message, isPlaying, onPlayTTS }: ChatMessageProps)
         {isUser ? 'You' : 'AI'}
       </div>
 
-      {/* Message bubble */}
-      <div className={`max-w-[85%] md:max-w-[80%] rounded-2xl px-3 md:px-4 py-2.5 md:py-3 ${
-        isUser
-          ? 'bg-primary/10 border border-primary/20 rounded-tr-sm'
-          : 'bg-glass rounded-tl-sm'
-      }`}>
-        <div
-          className="text-sm leading-relaxed text-foreground/90 break-words"
-          dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-        />
+      {/* Message bubble + reactions */}
+      <div className="relative max-w-[85%] md:max-w-[80%]">
+        <div className={`rounded-2xl px-3 md:px-4 py-2.5 md:py-3 ${
+          isUser
+            ? 'bg-primary/10 border border-primary/20 rounded-tr-sm'
+            : 'bg-glass rounded-tl-sm'
+        }`}>
+          <div
+            className="text-sm leading-relaxed text-foreground/90 break-words"
+            dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
+          />
 
-        {/* TTS button for assistant messages */}
-        {!isUser && message.content && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1.5 h-6 px-2 text-xs text-muted-foreground hover:text-primary"
-            onClick={() => onPlayTTS(message.content, message.id)}
-          >
-            {isPlaying ? (
-              <><VolumeX className="w-3 h-3 mr-1" /> Stop</>
-            ) : (
-              <><Volume2 className="w-3 h-3 mr-1" /> Listen</>
+          {/* Action row */}
+          <div className="flex items-center gap-1 mt-1.5">
+            {!isUser && message.content && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                onClick={() => onPlayTTS(message.content, message.id)}
+              >
+                {isPlaying ? (
+                  <><VolumeX className="w-3 h-3 mr-1" /> Stop</>
+                ) : (
+                  <><Volume2 className="w-3 h-3 mr-1" /> Listen</>
+                )}
+              </Button>
             )}
-          </Button>
-        )}
+
+            {/* React button - visible on hover or tap */}
+            {message.content && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => setShowPicker(p => !p)}
+              >
+                <SmilePlus className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Emoji picker */}
+        <AnimatePresence>
+          {showPicker && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85, y: 4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 4 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className={`absolute z-20 mt-1 ${isUser ? 'right-0' : 'left-0'}`}
+            >
+              <div className="flex gap-0.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full px-2 py-1.5 shadow-lg shadow-black/20">
+                {QUICK_EMOJIS.map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => {
+                      onReact(message.id, emoji);
+                      setShowPicker(false);
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-primary/20 hover:scale-125 active:scale-95 transition-all duration-150 text-base"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Displayed reactions */}
+        <AnimatePresence>
+          {reactions.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`flex flex-wrap gap-1 mt-1 ${isUser ? 'justify-end' : 'justify-start'}`}
+            >
+              {reactions.map((emoji, i) => (
+                <motion.button
+                  key={`${emoji}-${i}`}
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 25, delay: i * 0.03 }}
+                  onClick={() => onReact(message.id, emoji)}
+                  className="h-6 px-1.5 rounded-full bg-primary/10 border border-primary/20 text-sm hover:bg-primary/20 hover:scale-110 active:scale-90 transition-all duration-150"
+                >
+                  {emoji}
+                </motion.button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
