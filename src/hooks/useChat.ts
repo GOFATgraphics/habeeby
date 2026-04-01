@@ -166,5 +166,23 @@ export function useChat() {
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  return { messages, isLoading, sendMessage, clearHistory };
+  const toggleReaction = useCallback((messageId: string, emoji: string) => {
+    setMessages(prev => {
+      const updated = prev.map(msg => {
+        if (msg.id !== messageId) return msg;
+        const reactions = msg.reactions || [];
+        const hasReaction = reactions.includes(emoji);
+        return {
+          ...msg,
+          reactions: hasReaction
+            ? reactions.filter(r => r !== emoji)
+            : [...reactions, emoji],
+        };
+      });
+      saveMessages(updated);
+      return updated;
+    });
+  }, []);
+
+  return { messages, isLoading, sendMessage, clearHistory, toggleReaction };
 }
