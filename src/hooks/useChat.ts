@@ -90,6 +90,7 @@ export function useChat() {
         body: JSON.stringify({
           messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
           userName: userData?.name,
+          deviceId: getDeviceId(),
         }),
         signal: abortRef.current.signal,
       });
