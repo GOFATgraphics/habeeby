@@ -9,6 +9,16 @@ export interface ChatMessage {
 
 const STORAGE_KEY = 'habibi-chat-history';
 const USER_KEY = 'habibi-user';
+const DEVICE_KEY = 'habibi-device-id';
+
+function getDeviceId(): string {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
 
 function loadMessages(): ChatMessage[] {
   try {
