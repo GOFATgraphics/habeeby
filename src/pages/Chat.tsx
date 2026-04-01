@@ -134,6 +134,7 @@ const Chat = () => {
               message={message}
               isPlaying={playingMessageId === message.id}
               onPlayTTS={playTTS}
+              onReact={toggleReaction}
             />
           ))}
 
