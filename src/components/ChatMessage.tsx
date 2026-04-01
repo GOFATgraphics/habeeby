@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, VolumeX, SmilePlus } from 'lucide-react';
 import { ChatMessage as ChatMessageType } from '@/hooks/useChat';
 import { Button } from '@/components/ui/button';
 
 const QUICK_EMOJIS = ['❤️', '👍', '🤲', '🌙', '✨', '😊', '🔥', '💎'];
+const LONG_PRESS_MS = 400;
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -16,6 +17,43 @@ interface ChatMessageProps {
 export function ChatMessage({ message, isPlaying, onPlayTTS, onReact }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [showPicker, setShowPicker] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didLongPress = useRef(false);
+
+  const clearTimer = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  // Close picker on outside tap
+  useEffect(() => {
+    if (!showPicker) return;
+    const handler = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-reaction-picker]') && !target.closest('[data-reaction-trigger]')) {
+        setShowPicker(false);
+      }
+    };
+    document.addEventListener('pointerdown', handler);
+    return () => document.removeEventListener('pointerdown', handler);
+  }, [showPicker]);
+
+  const handleTouchStart = useCallback(() => {
+    if (!message.content) return;
+    didLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
+      setShowPicker(p => !p);
+      // Haptic feedback if available
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, LONG_PRESS_MS);
+  }, [message.content]);
+
+  const handleTouchEnd = useCallback(() => {
+    clearTimer();
+  }, [clearTimer]);
 
   const formatContent = (text: string) => {
     return text
@@ -44,11 +82,17 @@ export function ChatMessage({ message, isPlaying, onPlayTTS, onReact }: ChatMess
 
       {/* Message bubble + reactions */}
       <div className="relative max-w-[85%] md:max-w-[80%]">
-        <div className={`rounded-2xl px-3 md:px-4 py-2.5 md:py-3 ${
-          isUser
-            ? 'bg-primary/10 border border-primary/20 rounded-tr-sm'
-            : 'bg-glass rounded-tl-sm'
-        }`}>
+        <div
+          className={`rounded-2xl px-3 md:px-4 py-2.5 md:py-3 select-none ${
+            isUser
+              ? 'bg-primary/10 border border-primary/20 rounded-tr-sm'
+              : 'bg-glass rounded-tl-sm'
+          }`}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchMove={clearTimer}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <div
             className="text-sm leading-relaxed text-foreground/90 break-words"
             dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
@@ -71,12 +115,13 @@ export function ChatMessage({ message, isPlaying, onPlayTTS, onReact }: ChatMess
               </Button>
             )}
 
-            {/* React button - visible on hover or tap */}
+            {/* React button - visible on hover (desktop) */}
             {message.content && (
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                data-reaction-trigger
+                className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex"
                 onClick={() => setShowPicker(p => !p)}
               >
                 <SmilePlus className="w-3.5 h-3.5" />
@@ -89,6 +134,7 @@ export function ChatMessage({ message, isPlaying, onPlayTTS, onReact }: ChatMess
         <AnimatePresence>
           {showPicker && (
             <motion.div
+              data-reaction-picker
               initial={{ opacity: 0, scale: 0.85, y: 4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.85, y: 4 }}
