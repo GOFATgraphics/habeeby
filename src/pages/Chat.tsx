@@ -13,7 +13,7 @@ import { useSpeechToSpeech } from '@/hooks/useSpeechToSpeech';
 
 const Chat = () => {
   const navigate = useNavigate();
-  const { messages, isLoading, sendMessage, clearHistory } = useChat();
+  const { messages, isLoading, sendMessage, clearHistory, toggleReaction } = useChat();
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
   const speechToSpeech = useSpeechToSpeech(sendMessage);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -134,6 +134,7 @@ const Chat = () => {
               message={message}
               isPlaying={playingMessageId === message.id}
               onPlayTTS={playTTS}
+              onReact={toggleReaction}
             />
           ))}
 
