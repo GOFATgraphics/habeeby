@@ -5,6 +5,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  reactions?: string[];
 }
 
 const STORAGE_KEY = 'habibi-chat-history';
