@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,6 +27,85 @@ PERSONALITY RULES:
 14. Be culturally sensitive and inclusive of all Muslim backgrounds and madhabs.
 15. Never discuss politics, sectarian debates, or controversial fiqh issues. Redirect to unity and core faith.`;
 
+const MEMORY_UPDATE_PROMPT = `You are updating a private memory file for Habibi, an Islamic AI companion. Based on the conversation below and the existing memory, write an updated memory briefing. Be warm, specific, and personal. Include: the user's name, their emotional patterns and current struggles, their spiritual goals and progress, important people in their life, any situations they are navigating, their communication style, and anything Habibi should remember or follow up on. Write it as a flowing paragraph, not bullet points. Preserve everything important from the existing memory and add new details from the conversation.`;
+
+function getSupabaseAdmin() {
+  return createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+}
+
+async function getOrCreateProfile(deviceId: string) {
+  const supabase = getSupabaseAdmin();
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('device_id', deviceId)
+    .maybeSingle();
+  
+  if (error) {
+    console.error('Error fetching profile:', error);
+    return { habibi_memory: '', message_count: 0 };
+  }
+  
+  if (!data) {
+    const { data: newProfile } = await supabase
+      .from('profiles')
+      .insert({ device_id: deviceId })
+      .select()
+      .single();
+    return newProfile || { habibi_memory: '', message_count: 0 };
+  }
+  
+  return data;
+}
+
+async function updateMemory(deviceId: string, messages: { role: string; content: string }[], existingMemory: string) {
+  const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
+  
+  const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+  const prompt = existingMemory
+    ? `Existing memory:\n${existingMemory}\n\nRecent conversation:\n${conversationText}`
+    : `Recent conversation:\n${conversationText}`;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: MEMORY_UPDATE_PROMPT,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Memory update API error:', await response.text());
+      return;
+    }
+
+    const result = await response.json();
+    const memoryText = result.content?.[0]?.text || '';
+
+    if (memoryText) {
+      const supabase = getSupabaseAdmin();
+      await supabase
+        .from('profiles')
+        .update({ habibi_memory: memoryText, message_count: 0, updated_at: new Date().toISOString() })
+        .eq('device_id', deviceId);
+    }
+  } catch (err) {
+    console.error('Memory update failed:', err);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -40,7 +120,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, userName } = await req.json();
+    const { messages, userName, deviceId } = await req.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Messages are required' }), {
@@ -49,9 +129,31 @@ serve(async (req) => {
       });
     }
 
-    const systemPrompt = userName
+    // Get or create profile for memory
+    const profile = deviceId ? await getOrCreateProfile(deviceId) : { habibi_memory: '', message_count: 0 };
+
+    // Build system prompt
+    let systemPrompt = userName
       ? `${HABIBI_SYSTEM_PROMPT}\n\nThe user's name is ${userName}. Use their name occasionally to make the conversation personal.`
       : HABIBI_SYSTEM_PROMPT;
+
+    // Build system blocks: cached main prompt + memory
+    const systemBlocks: { type: string; text: string; cache_control?: { type: string } }[] = [
+      { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+    ];
+
+    if (profile.habibi_memory) {
+      systemBlocks.push({
+        type: 'text',
+        text: `MEMORY ABOUT THIS USER (use this to personalize your responses, but never mention that you have a "memory file"):\n${profile.habibi_memory}`,
+      });
+    }
+
+    // Only send last 6 messages
+    const recentMessages = messages.slice(-6).map((m: { role: string; content: string }) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -63,11 +165,8 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-        messages: messages.map((m: { role: string; content: string }) => ({
-          role: m.role,
-          content: m.content,
-        })),
+        system: systemBlocks,
+        messages: recentMessages,
         stream: true,
       }),
     });
@@ -79,6 +178,23 @@ serve(async (req) => {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // Increment message count and trigger memory update if needed
+    if (deviceId) {
+      const newCount = (profile.message_count || 0) + 1;
+      const supabase = getSupabaseAdmin();
+      
+      if (newCount >= 10) {
+        // Trigger memory update in background (don't await — let it run async)
+        updateMemory(deviceId, messages, profile.habibi_memory || '');
+        // Count resets inside updateMemory
+      } else {
+        await supabase
+          .from('profiles')
+          .update({ message_count: newCount })
+          .eq('device_id', deviceId);
+      }
     }
 
     // Stream SSE back to client
