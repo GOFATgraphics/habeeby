@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          reactions: string[] | null
+          role: string
+          user_id: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          id?: string
+          reactions?: string[] | null
+          role: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          reactions?: string[] | null
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string | null
@@ -22,6 +49,7 @@ export type Database = {
           id: string
           message_count: number | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           created_at?: string | null
@@ -30,6 +58,7 @@ export type Database = {
           id?: string
           message_count?: number | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           created_at?: string | null
@@ -38,6 +67,7 @@ export type Database = {
           id?: string
           message_count?: number | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }

@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface ChatMessage {
   id: string;
@@ -6,33 +7,10 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   reactions?: string[];
+  dbId?: string;
 }
 
-const STORAGE_KEY = 'habibi-chat-history';
 const USER_KEY = 'habibi-user';
-const DEVICE_KEY = 'habibi-device-id';
-
-function getDeviceId(): string {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(DEVICE_KEY, id);
-  }
-  return id;
-}
-
-function loadMessages(): ChatMessage[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMessages(messages: ChatMessage[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-}
 
 export function getUserData(): { name: string; intention: string } | null {
   try {
@@ -47,13 +25,74 @@ export function saveUserData(data: { name: string; intention: string }) {
   localStorage.setItem(USER_KEY, JSON.stringify(data));
 }
 
-export function useChat() {
-  const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
+async function loadMessagesFromDB(userId: string): Promise<ChatMessage[]> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error || !data) return [];
+
+  return data.map(m => ({
+    id: m.id,
+    dbId: m.id,
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+    timestamp: new Date(m.created_at).getTime(),
+    reactions: m.reactions || [],
+  }));
+}
+
+async function saveMessageToDB(userId: string, msg: ChatMessage): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      user_id: userId,
+      role: msg.role,
+      content: msg.content,
+      reactions: msg.reactions || [],
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('Failed to save message:', error);
+    return null;
+  }
+  return data?.id || null;
+}
+
+async function updateMessageInDB(dbId: string, updates: { content?: string; reactions?: string[] }) {
+  await supabase
+    .from('messages')
+    .update(updates)
+    .eq('id', dbId);
+}
+
+export function useChat(userId?: string) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Load messages from DB on mount
+  useEffect(() => {
+    if (!userId) {
+      setIsLoadingHistory(false);
+      return;
+    }
+    setIsLoadingHistory(true);
+    loadMessagesFromDB(userId).then(msgs => {
+      setMessages(msgs);
+      setIsLoadingHistory(false);
+    });
+  }, [userId]);
+
   const sendMessage = useCallback(async (content: string) => {
+    if (!userId) return;
     const userData = getUserData();
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -63,8 +102,11 @@ export function useChat() {
 
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
-    saveMessages(updatedMessages);
     setIsLoading(true);
+
+    // Save user message to DB
+    const userDbId = await saveMessageToDB(userId, userMessage);
+    if (userDbId) userMessage.dbId = userDbId;
 
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -91,14 +133,12 @@ export function useChat() {
         body: JSON.stringify({
           messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
           userName: userData?.name,
-          deviceId: getDeviceId(),
+          userId,
         }),
         signal: abortRef.current.signal,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get response');
-      }
+      if (!response.ok) throw new Error('Failed to get response');
 
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
@@ -117,7 +157,6 @@ export function useChat() {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
             if (data === '[DONE]') continue;
-
             try {
               const parsed = JSON.parse(data);
               if (parsed.text) {
@@ -131,40 +170,48 @@ export function useChat() {
                   return updated;
                 });
               }
-            } catch {
-              // Skip unparseable
-            }
+            } catch { /* skip */ }
           }
         }
       }
 
-      // Save final state
-      setMessages(prev => {
-        saveMessages(prev);
-        return prev;
-      });
+      // Save assistant message to DB
+      assistantMessage.content = fullText;
+      const assistantDbId = await saveMessageToDB(userId, assistantMessage);
+      if (assistantDbId) {
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...updated[updated.length - 1], dbId: assistantDbId };
+          return updated;
+        });
+      }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
+        const errorContent = 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲';
         setMessages(prev => {
           const updated = [...prev];
           updated[updated.length - 1] = {
             ...updated[updated.length - 1],
-            content: 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲',
+            content: errorContent,
           };
-          saveMessages(updated);
           return updated;
         });
+        // Save error message to DB too
+        assistantMessage.content = errorContent;
+        await saveMessageToDB(userId, assistantMessage);
       }
     } finally {
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [messages]);
+  }, [messages, userId]);
 
-  const clearHistory = useCallback(() => {
+  const clearHistory = useCallback(async () => {
+    if (userId) {
+      await supabase.from('messages').delete().eq('user_id', userId);
+    }
     setMessages([]);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+  }, [userId]);
 
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
     setMessages(prev => {
@@ -172,17 +219,20 @@ export function useChat() {
         if (msg.id !== messageId) return msg;
         const reactions = msg.reactions || [];
         const hasReaction = reactions.includes(emoji);
-        return {
-          ...msg,
-          reactions: hasReaction
-            ? reactions.filter(r => r !== emoji)
-            : [...reactions, emoji],
-        };
+        const newReactions = hasReaction
+          ? reactions.filter(r => r !== emoji)
+          : [...reactions, emoji];
+
+        // Update in DB if we have a dbId
+        if (msg.dbId) {
+          updateMessageInDB(msg.dbId, { reactions: newReactions });
+        }
+
+        return { ...msg, reactions: newReactions };
       });
-      saveMessages(updated);
       return updated;
     });
   }, []);
 
-  return { messages, isLoading, sendMessage, clearHistory, toggleReaction };
+  return { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction };
 }
