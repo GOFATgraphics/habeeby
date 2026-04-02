@@ -10,6 +10,8 @@ export interface ChatMessage {
   dbId?: string;
 }
 
+const STORAGE_KEY = 'habibi-chat-history';
+
 const USER_KEY = 'habibi-user';
 
 export function getUserData(): { name: string; intention: string } | null {
@@ -76,15 +78,40 @@ export function useChat(userId?: string) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Load messages from DB on mount
+  // Load messages from DB on mount, migrate localStorage if needed
   useEffect(() => {
     if (!userId) {
       setIsLoadingHistory(false);
       return;
     }
     setIsLoadingHistory(true);
-    loadMessagesFromDB(userId).then(msgs => {
-      setMessages(msgs);
+    loadMessagesFromDB(userId).then(async (dbMsgs) => {
+      if (dbMsgs.length > 0) {
+        setMessages(dbMsgs);
+        // Clear localStorage since we have DB data
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        // Check localStorage for old messages to migrate
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            const localMsgs: ChatMessage[] = JSON.parse(stored);
+            if (localMsgs.length > 0) {
+              // Migrate to DB
+              const migratedMsgs: ChatMessage[] = [];
+              for (const msg of localMsgs) {
+                if (!msg.content) continue;
+                const dbId = await saveMessageToDB(userId, msg);
+                migratedMsgs.push({ ...msg, dbId: dbId || undefined });
+              }
+              setMessages(migratedMsgs);
+              localStorage.removeItem(STORAGE_KEY);
+            }
+          }
+        } catch {
+          // Ignore localStorage parse errors
+        }
+      }
       setIsLoadingHistory(false);
     });
   }, [userId]);
