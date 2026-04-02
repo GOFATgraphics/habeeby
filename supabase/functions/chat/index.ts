@@ -36,13 +36,14 @@ function getSupabaseAdmin() {
   );
 }
 
-async function getOrCreateProfile(deviceId: string) {
+async function getOrCreateProfile(userId: string) {
   const supabase = getSupabaseAdmin();
   
+  // Try by user_id first
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .eq('device_id', deviceId)
+    .eq('user_id', userId)
     .maybeSingle();
   
   if (error) {
@@ -53,7 +54,7 @@ async function getOrCreateProfile(deviceId: string) {
   if (!data) {
     const { data: newProfile } = await supabase
       .from('profiles')
-      .insert({ device_id: deviceId })
+      .insert({ device_id: userId, user_id: userId })
       .select()
       .single();
     return newProfile || { habibi_memory: '', message_count: 0 };
@@ -62,7 +63,7 @@ async function getOrCreateProfile(deviceId: string) {
   return data;
 }
 
-async function updateMemory(deviceId: string, messages: { role: string; content: string }[], existingMemory: string) {
+async function updateMemory(userId: string, messages: { role: string; content: string }[], existingMemory: string) {
   const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
   
   const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
@@ -99,7 +100,7 @@ async function updateMemory(deviceId: string, messages: { role: string; content:
       await supabase
         .from('profiles')
         .update({ habibi_memory: memoryText, message_count: 0, updated_at: new Date().toISOString() })
-        .eq('device_id', deviceId);
+        .eq('user_id', userId);
     }
   } catch (err) {
     console.error('Memory update failed:', err);
@@ -120,7 +121,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, userName, deviceId } = await req.json();
+    const { messages, userName, userId, deviceId } = await req.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Messages are required' }), {
@@ -129,15 +130,14 @@ serve(async (req) => {
       });
     }
 
-    // Get or create profile for memory
-    const profile = deviceId ? await getOrCreateProfile(deviceId) : { habibi_memory: '', message_count: 0 };
+    // Support both userId (new auth) and deviceId (legacy)
+    const profileKey = userId || deviceId;
+    const profile = profileKey ? await getOrCreateProfile(profileKey) : { habibi_memory: '', message_count: 0 };
 
-    // Build system prompt
     let systemPrompt = userName
       ? `${HABIBI_SYSTEM_PROMPT}\n\nThe user's name is ${userName}. Use their name occasionally to make the conversation personal.`
       : HABIBI_SYSTEM_PROMPT;
 
-    // Build system blocks: cached main prompt + memory
     const systemBlocks: { type: string; text: string; cache_control?: { type: string } }[] = [
       { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
     ];
@@ -149,7 +149,6 @@ serve(async (req) => {
       });
     }
 
-    // Only send last 6 messages
     const recentMessages = messages.slice(-6).map((m: { role: string; content: string }) => ({
       role: m.role,
       content: m.content,
@@ -181,23 +180,20 @@ serve(async (req) => {
     }
 
     // Increment message count and trigger memory update if needed
-    if (deviceId) {
+    if (profileKey) {
       const newCount = (profile.message_count || 0) + 1;
       const supabase = getSupabaseAdmin();
       
       if (newCount >= 10) {
-        // Trigger memory update in background (don't await — let it run async)
-        updateMemory(deviceId, messages, profile.habibi_memory || '');
-        // Count resets inside updateMemory
+        updateMemory(profileKey, messages, profile.habibi_memory || '');
       } else {
         await supabase
           .from('profiles')
           .update({ message_count: newCount })
-          .eq('device_id', deviceId);
+          .eq(userId ? 'user_id' : 'device_id', profileKey);
       }
     }
 
-    // Stream SSE back to client
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
