@@ -10,6 +10,8 @@ export interface ChatMessage {
   dbId?: string;
 }
 
+const STORAGE_KEY = 'habibi-chat-history';
+
 const USER_KEY = 'habibi-user';
 
 export function getUserData(): { name: string; intention: string } | null {
