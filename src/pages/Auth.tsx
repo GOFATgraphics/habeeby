@@ -25,14 +25,15 @@ const Auth = () => {
     setSubmitting(true);
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
+        const { data: signUpData, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        // Auto sign-in after signup (requires email confirmation disabled in Supabase dashboard)
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        if (signInError) throw signInError;
+
+        // If Supabase returned a session directly, confirmation is disabled — we're done.
+        if (signUpData.session) return;
+
+        // Otherwise email confirmation is still enabled in the Supabase dashboard.
+        toast.info('Almost there! Check your email and click the confirmation link, then sign in.');
+        setMode('login');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
