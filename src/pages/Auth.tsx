@@ -28,10 +28,11 @@ const Auth = () => {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/auth` },
         });
         if (error) throw error;
-        toast.success('Check your email to confirm your account!');
+        // Auto sign-in after signup (requires email confirmation disabled in Supabase dashboard)
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) throw signInError;
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
