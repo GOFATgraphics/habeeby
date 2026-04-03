@@ -17,7 +17,15 @@ const Chat = () => {
   const { user, signOut, loading: authLoading } = useAuth();
   const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(user?.id);
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
-  const speechToSpeech = useSpeechToSpeech(sendMessage);
+  const {
+    isRecording: isVoiceRecording,
+    isProcessing,
+    isAISpeaking,
+    startListening,
+    stopListening,
+    speakResponse,
+    stopSpeaking,
+  } = useSpeechToSpeech(sendMessage);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
@@ -32,36 +40,32 @@ const Chat = () => {
 
   useEffect(() => {
     if (!userData) setShowOnboarding(true);
-  }, []);
+  }, [userData]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   useEffect(() => {
-    if (mode === 'voice' && !isLoading && messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      if (lastMsg.role === 'assistant' && lastMsg.content && !speechToSpeech.isAISpeaking) {
-        void speechToSpeech.speakResponse(lastMsg.content, lastMsg.id);
-      }
+    if (mode !== 'voice' || isLoading || messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role === 'assistant' && lastMessage.content && !isAISpeaking) {
+      void speakResponse(lastMessage.content, lastMessage.id);
     }
-  }, [mode, isLoading, messages, speechToSpeech]);
+  }, [mode, isLoading, messages, isAISpeaking, speakResponse]);
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
-    const u = getUserData();
-    if (u) {
-      void sendMessage(`Assalamu Alaikum! My name is ${u.name}. ${u.intention}`);
+    const currentUserData = getUserData();
+    if (currentUserData) {
+      void sendMessage(`Assalamu Alaikum! My name is ${currentUserData.name}. ${currentUserData.intention}`);
     }
   };
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/');
-  };
-
-  const handleReply = (message: ChatMessageType) => {
-    setReplyTo(message);
   };
 
   const handleSend = async (content: string) => {
@@ -71,10 +75,10 @@ const Chat = () => {
 
   if (authLoading || isLoadingHistory) {
     return (
-      <div className="h-full flex items-center justify-center bg-background">
+      <div className="flex h-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-muted-foreground text-sm">Loading your conversations...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Loading your conversations...</p>
         </div>
       </div>
     );
@@ -83,93 +87,93 @@ const Chat = () => {
   if (!user) return null;
 
   return (
-    <div className="flex flex-col h-full bg-background bg-grid-pattern relative overflow-hidden">
-      <div className="absolute top-[-30%] right-[-20%] w-[400px] h-[400px] orb-gradient rounded-full blur-3xl pointer-events-none" />
+    <div className="relative flex h-full flex-col overflow-hidden bg-background bg-grid-pattern">
+      <div className="pointer-events-none absolute right-[-20%] top-[-30%] h-[400px] w-[400px] rounded-full orb-gradient blur-3xl" />
 
-      <header className="flex items-center justify-between px-3 py-2.5 border-b border-border/50 bg-glass-strong relative z-10 safe-top flex-shrink-0">
+      <header className="safe-top relative z-10 flex shrink-0 items-center justify-between border-b border-border/50 bg-glass-strong px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground h-8 w-8" onClick={() => navigate('/')}>
-            <ArrowLeft className="w-4 h-4" />
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={() => navigate('/')}>
+            <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center glow-cyan">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-primary/30 bg-primary/10 glow-cyan">
               <span className="text-sm">🌙</span>
             </div>
             <div>
               <h1 className="font-display text-sm font-semibold leading-tight text-foreground">Habibi</h1>
-              <p className="text-[10px] text-muted-foreground font-mono leading-none">QURAN COMPANION</p>
+              <p className="font-mono text-[10px] leading-none text-muted-foreground">QURAN COMPANION</p>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
-          <div className="flex bg-muted/50 rounded-full p-0.5 mr-1">
+          <div className="mr-1 flex rounded-full bg-muted/50 p-0.5">
             <Button
               variant="ghost"
               size="sm"
-              className={`rounded-full h-7 px-2.5 text-xs transition-all ${mode === 'text' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
+              className={`h-7 rounded-full px-2.5 text-xs transition-all ${mode === 'text' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
               onClick={() => setMode('text')}
             >
-              <MessageSquare className="w-3 h-3 mr-1" />
+              <MessageSquare className="mr-1 h-3 w-3" />
               Text
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              className={`rounded-full h-7 px-2.5 text-xs transition-all ${mode === 'voice' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
+              className={`h-7 rounded-full px-2.5 text-xs transition-all ${mode === 'voice' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
               onClick={() => setMode('voice')}
             >
-              <Mic className="w-3 h-3 mr-1" />
+              <Mic className="mr-1 h-3 w-3" />
               Voice
             </Button>
           </div>
 
           {messages.length > 0 && (
-            <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-destructive h-8 w-8" onClick={clearHistory}>
-              <Trash2 className="w-3.5 h-3.5" />
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive" onClick={clearHistory}>
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
           )}
 
-          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground h-8 w-8" onClick={handleSignOut}>
-            <LogOut className="w-3.5 h-3.5" />
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={handleSignOut}>
+            <LogOut className="h-3.5 w-3.5" />
           </Button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-3 md:px-4 py-4 md:py-6 relative z-10 min-h-0">
-        <div className="max-w-3xl mx-auto space-y-3 md:space-y-4">
+      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-4 md:py-6">
+        <div className="mx-auto max-w-3xl space-y-3 md:space-y-4">
           {messages.length === 0 && !showOnboarding && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-16 md:py-20">
-              <div className="w-14 h-14 md:w-16 md:h-16 mx-auto rounded-full bg-glass border border-border flex items-center justify-center mb-4 animate-float glow-cyan">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="py-16 text-center md:py-20">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-border bg-glass glow-cyan animate-float md:h-16 md:w-16">
                 <span className="text-xl md:text-2xl">🌙</span>
               </div>
-              <h2 className="font-display text-lg md:text-xl text-foreground mb-2">
+              <h2 className="mb-2 font-display text-lg text-foreground md:text-xl">
                 Assalamu Alaikum{userData?.name ? `, ${userData.name}` : ''}
               </h2>
-              <p className="text-muted-foreground text-sm max-w-xs md:max-w-sm mx-auto">
+              <p className="mx-auto max-w-xs text-sm text-muted-foreground md:max-w-sm">
                 {mode === 'voice' ? 'Tap the orb below to start a voice conversation.' : 'Type a message or switch to voice mode to begin.'}
               </p>
             </motion.div>
           )}
 
-          {messages.map(message => (
+          {messages.map((message) => (
             <ChatMessage
               key={message.id}
               message={message}
               isPlaying={playingMessageId === message.id}
               onPlayTTS={playTTS}
               onReact={toggleReaction}
-              onReply={handleReply}
+              onReply={setReplyTo}
             />
           ))}
 
           {isLoading && messages[messages.length - 1]?.content === '' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2 md:gap-3">
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-secondary/10 border border-secondary/30 flex items-center justify-center text-[10px] md:text-xs font-mono text-secondary flex-shrink-0">AI</div>
-              <div className="bg-glass rounded-2xl rounded-tl-sm px-3 md:px-4 py-2.5 md:py-3">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-secondary/30 bg-secondary/10 text-[10px] font-mono text-secondary md:h-8 md:w-8 md:text-xs">AI</div>
+              <div className="rounded-2xl rounded-tl-sm bg-glass px-3 py-2.5 md:px-4 md:py-3">
                 <div className="flex gap-1.5">
-                  {[0, 1, 2].map(i => (
-                    <motion.span key={i} className="w-1.5 h-1.5 bg-primary rounded-full" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }} />
+                  {[0, 1, 2].map((i) => (
+                    <motion.span key={i} className="h-1.5 w-1.5 rounded-full bg-primary" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }} />
                   ))}
                 </div>
               </div>
@@ -182,17 +186,17 @@ const Chat = () => {
 
       <AnimatePresence mode="wait">
         {mode === 'voice' ? (
-          <motion.div key="voice" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="border-t border-border/50 bg-glass-strong p-6 md:p-8 flex justify-center relative z-10 safe-bottom flex-shrink-0">
+          <motion.div key="voice" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 flex shrink-0 justify-center border-t border-border/50 bg-glass-strong p-6 md:p-8">
             <VoiceOrb
-              isRecording={speechToSpeech.isRecording}
-              isProcessing={speechToSpeech.isProcessing}
-              isAISpeaking={speechToSpeech.isAISpeaking}
-              onPress={speechToSpeech.startListening}
-              onStop={speechToSpeech.isAISpeaking ? speechToSpeech.stopSpeaking : speechToSpeech.stopListening}
+              isRecording={isVoiceRecording}
+              isProcessing={isProcessing}
+              isAISpeaking={isAISpeaking}
+              onPress={startListening}
+              onStop={isAISpeaking ? stopSpeaking : stopListening}
             />
           </motion.div>
         ) : (
-          <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="relative z-10 flex-shrink-0 safe-bottom">
+          <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 shrink-0">
             <ChatInput
               onSend={handleSend}
               isLoading={isLoading}

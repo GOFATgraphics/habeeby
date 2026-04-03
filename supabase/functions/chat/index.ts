@@ -41,7 +41,7 @@ type ConversationMessage = {
 function getSupabaseAdmin() {
   return createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 }
 
@@ -51,6 +51,22 @@ function ensureAnthropicKey() {
     throw new Error('ANTHROPIC_API_KEY is not configured');
   }
   return key;
+}
+
+async function getAuthenticatedUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+
+  const token = authHeader.replace('Bearer ', '');
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data.user) {
+    console.error('Failed to validate auth token:', error);
+    return null;
+  }
+
+  return data.user;
 }
 
 async function getOrCreateProfile(userId: string) {
@@ -92,21 +108,15 @@ function formatConversationForMemory(messages: ConversationMessage[]) {
         : '';
       return `${message.role}${replyContext}: ${message.content}`;
     })
-    .join('
-');
+    .join('\n');
 }
 
 async function updateMemory(userId: string, messages: ConversationMessage[], existingMemory: string) {
   const anthropicKey = ensureAnthropicKey();
   const conversationText = formatConversationForMemory(messages);
   const prompt = existingMemory
-    ? `Existing memory:
-${existingMemory}
-
-Recent conversation:
-${conversationText}`
-    : `Recent conversation:
-${conversationText}`;
+    ? `Existing memory:\n${existingMemory}\n\nRecent conversation:\n${conversationText}`
+    : `Recent conversation:\n${conversationText}`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -131,13 +141,16 @@ ${conversationText}`;
 
     const result = await response.json();
     const memoryText = result.content?.[0]?.text || '';
-
     if (!memoryText) return false;
 
     const supabase = getSupabaseAdmin();
     const { error } = await supabase
       .from('profiles')
-      .update({ habibi_memory: memoryText, message_count: 0, updated_at: new Date().toISOString() })
+      .update({
+        habibi_memory: memoryText,
+        message_count: 0,
+        updated_at: new Date().toISOString(),
+      })
       .eq('user_id', userId);
 
     if (error) {
@@ -146,8 +159,8 @@ ${conversationText}`;
     }
 
     return true;
-  } catch (err) {
-    console.error('Memory update failed:', err);
+  } catch (error) {
+    console.error('Memory update failed:', error);
     return false;
   }
 }
@@ -159,27 +172,27 @@ serve(async (req) => {
 
   try {
     const anthropicKey = ensureAnthropicKey();
+    const authUser = await getAuthenticatedUser(req);
     const { messages, userName, userId } = await req.json();
 
-    if (!userId || typeof userId !== 'string') {
+    if (!authUser || !userId || authUser.id !== userId) {
       return new Response(JSON.stringify({ error: 'Authenticated user is required' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Messages are required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    const conversation = messages as ConversationMessage[];
     const profile = await getOrCreateProfile(userId);
     const systemPrompt = userName
-      ? `${HABIBI_SYSTEM_PROMPT}
-
-The user's name is ${userName}. Use their name occasionally to make the conversation personal.`
+      ? `${HABIBI_SYSTEM_PROMPT}\n\nThe user's name is ${userName}. Use their name occasionally to make the conversation personal.`
       : HABIBI_SYSTEM_PROMPT;
 
     const systemBlocks: { type: string; text: string; cache_control?: { type: string } }[] = [
@@ -189,19 +202,16 @@ The user's name is ${userName}. Use their name occasionally to make the conversa
     if (profile.habibi_memory) {
       systemBlocks.push({
         type: 'text',
-        text: `MEMORY ABOUT THIS USER (use this to personalize your responses, but never mention that you have a "memory file"):
-${profile.habibi_memory}`,
+        text: `MEMORY ABOUT THIS USER (use this to personalize your responses, but never mention that you have a "memory file"):\n${profile.habibi_memory}`,
       });
     }
 
-    const recentMessages = (messages as ConversationMessage[])
+    const recentMessages = conversation
       .slice(-MAX_CONTEXT_MESSAGES)
       .map((message) => ({
         role: message.role,
         content: message.replyToContent
-          ? `Reply context: replying to ${message.replyToRole === 'assistant' ? 'Habibi' : 'user'} who said: "${message.replyToContent}"
-
-${message.content}`
+          ? `Reply context: replying to ${message.replyToRole === 'assistant' ? 'Habibi' : 'user'} who said: "${message.replyToContent}"\n\n${message.content}`
           : message.content,
       }));
 
@@ -230,13 +240,13 @@ ${message.content}`
       });
     }
 
-    const userMessageCount = (messages as ConversationMessage[]).filter((message) => message.role === 'user').length;
-    if (userMessageCount > 0) {
-      const newCount = (profile.message_count || 0) + 1;
+    const latestMessage = conversation[conversation.length - 1];
+    if (latestMessage?.role === 'user') {
       const supabase = getSupabaseAdmin();
+      const newCount = (profile.message_count || 0) + 1;
 
       if (newCount >= MEMORY_UPDATE_INTERVAL) {
-        const updated = await updateMemory(userId, messages as ConversationMessage[], profile.habibi_memory || '');
+        const updated = await updateMemory(userId, conversation, profile.habibi_memory || '');
         if (!updated) {
           await supabase
             .from('profiles')
@@ -254,7 +264,12 @@ ${message.content}`
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = response.body!.getReader();
+        const reader = response.body?.getReader();
+        if (!reader) {
+          controller.error(new Error('Missing response body'));
+          return;
+        }
+
         const decoder = new TextDecoder();
         let buffer = '';
 
@@ -264,37 +279,32 @@ ${message.content}`
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('
-');
+            const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
             for (const line of lines) {
               if (!line.startsWith('data: ')) continue;
+
               const data = line.slice(6);
               if (data === '[DONE]') continue;
 
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: parsed.delta.text })}
-
-`));
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`));
                 } else if (parsed.type === 'message_stop') {
-                  controller.enqueue(encoder.encode('data: [DONE]
-
-'));
+                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                 }
               } catch {
-                // ignore malformed chunks
+                // Ignore malformed stream chunks.
               }
             }
           }
-          controller.enqueue(encoder.encode('data: [DONE]
 
-'));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
-        } catch (err) {
-          controller.error(err);
+        } catch (error) {
+          controller.error(error);
         }
       },
     });

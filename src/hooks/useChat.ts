@@ -8,7 +8,6 @@ export interface ChatMessage {
   timestamp: number;
   reactions?: string[];
   dbId?: string;
-  replyToId?: string;
   replyToRole?: 'user' | 'assistant';
   replyToContent?: string;
 }
@@ -17,7 +16,7 @@ const STORAGE_KEY = 'habibi-chat-history';
 const USER_KEY = 'habibi-user';
 const MAX_CONTEXT_MESSAGES = 6;
 
-type MessagePersistenceShape = Pick<ChatMessage, 'role' | 'content' | 'reactions' | 'replyToId' | 'replyToRole' | 'replyToContent'>;
+type ConversationMessage = Pick<ChatMessage, 'role' | 'content' | 'replyToRole' | 'replyToContent'>;
 
 export function getUserData(): { name: string; intention: string } | null {
   try {
@@ -32,28 +31,38 @@ export function saveUserData(data: { name: string; intention: string }) {
   localStorage.setItem(USER_KEY, JSON.stringify(data));
 }
 
-function mapDbMessage(m: any): ChatMessage {
+async function getAuthHeader() {
+  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const { data: { session } } = await supabase.auth.getSession();
   return {
-    id: m.id,
-    dbId: m.id,
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-    timestamp: new Date(m.created_at).getTime(),
-    reactions: m.reactions || [],
-    replyToId: m.reply_to_id || undefined,
-    replyToRole: m.reply_to_role || undefined,
-    replyToContent: m.reply_to_content || undefined,
+    apikey: supabaseKey,
+    Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,
   };
 }
 
-function toPersistedMessage(msg: ChatMessage): MessagePersistenceShape {
+function mapDbMessage(message: {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  reactions: string[] | null;
+}): ChatMessage {
   return {
-    role: msg.role,
-    content: msg.content,
-    reactions: msg.reactions || [],
-    replyToId: msg.replyToId,
-    replyToRole: msg.replyToRole,
-    replyToContent: msg.replyToContent,
+    id: message.id,
+    dbId: message.id,
+    role: message.role as 'user' | 'assistant',
+    content: message.content,
+    timestamp: new Date(message.created_at).getTime(),
+    reactions: message.reactions || [],
+  };
+}
+
+function toConversationMessage(message: ChatMessage): ConversationMessage {
+  return {
+    role: message.role,
+    content: message.content,
+    replyToRole: message.replyToRole,
+    replyToContent: message.replyToContent,
   };
 }
 
@@ -68,21 +77,15 @@ async function loadMessagesFromDB(userId: string): Promise<ChatMessage[]> {
   return data.map(mapDbMessage);
 }
 
-async function saveMessageToDB(userId: string, msg: ChatMessage): Promise<string | null> {
-  const insertPayload: Record<string, unknown> = {
-    user_id: userId,
-    role: msg.role,
-    content: msg.content,
-    reactions: msg.reactions || [],
-  };
-
-  if (msg.replyToId) insertPayload.reply_to_id = msg.replyToId;
-  if (msg.replyToRole) insertPayload.reply_to_role = msg.replyToRole;
-  if (msg.replyToContent) insertPayload.reply_to_content = msg.replyToContent;
-
+async function saveMessageToDB(userId: string, message: ChatMessage): Promise<string | null> {
   const { data, error } = await supabase
     .from('messages')
-    .insert(insertPayload)
+    .insert({
+      user_id: userId,
+      role: message.role,
+      content: message.content,
+      reactions: message.reactions || [],
+    })
     .select('id')
     .single();
 
@@ -125,35 +128,44 @@ export function useChat(userId?: string) {
     }
 
     setIsLoadingHistory(true);
-    void loadMessagesFromDB(userId).then(async (dbMsgs) => {
-      if (dbMsgs.length > 0) {
-        setMessages(dbMsgs);
+
+    void loadMessagesFromDB(userId).then(async (dbMessages) => {
+      if (dbMessages.length > 0) {
+        setMessages(dbMessages);
         localStorage.removeItem(STORAGE_KEY);
-      } else {
-        try {
-          const stored = localStorage.getItem(STORAGE_KEY);
-          if (stored) {
-            const localMsgs: ChatMessage[] = JSON.parse(stored);
-            if (localMsgs.length > 0) {
-              const migratedMsgs: ChatMessage[] = [];
-              for (const msg of localMsgs) {
-                if (!msg.content) continue;
-                const dbId = await saveMessageToDB(userId, msg);
-                migratedMsgs.push({ ...msg, dbId: dbId || undefined });
-              }
-              setMessages(migratedMsgs);
-              localStorage.removeItem(STORAGE_KEY);
-            } else {
-              setMessages([]);
-            }
-          } else {
-            setMessages([]);
-          }
-        } catch {
-          setMessages([]);
-        }
+        setIsLoadingHistory(false);
+        return;
       }
-      setIsLoadingHistory(false);
+
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (!stored) {
+          setMessages([]);
+          setIsLoadingHistory(false);
+          return;
+        }
+
+        const localMessages: ChatMessage[] = JSON.parse(stored);
+        if (localMessages.length === 0) {
+          setMessages([]);
+          setIsLoadingHistory(false);
+          return;
+        }
+
+        const migratedMessages: ChatMessage[] = [];
+        for (const message of localMessages) {
+          if (!message.content) continue;
+          const dbId = await saveMessageToDB(userId, message);
+          migratedMessages.push({ ...message, dbId: dbId || undefined });
+        }
+
+        setMessages(migratedMessages);
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        setMessages([]);
+      } finally {
+        setIsLoadingHistory(false);
+      }
     });
   }, [userId]);
 
@@ -163,8 +175,8 @@ export function useChat(userId?: string) {
   }, [messages, userId]);
 
   const sendMessage = useCallback(async (content: string, replyTo?: ChatMessage | null) => {
-    const activeMessages = messagesRef.current;
     const userData = getUserData();
+    const currentMessages = messagesRef.current;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -172,24 +184,11 @@ export function useChat(userId?: string) {
       content,
       timestamp: Date.now(),
       reactions: [],
-      replyToId: replyTo?.dbId || replyTo?.id,
       replyToRole: replyTo?.role,
       replyToContent: replyTo?.content,
     };
 
-    const messagesWithUser = [...activeMessages, userMessage];
-    setMessages(messagesWithUser);
-    setIsLoading(true);
-
-    if (userId) {
-      const userDbId = await saveMessageToDB(userId, userMessage);
-      if (userDbId) {
-        userMessage.dbId = userDbId;
-        setMessages(prev => prev.map(msg => msg.id === userMessage.id ? { ...msg, dbId: userDbId } : msg));
-      }
-    }
-
-    const assistantMessage: ChatMessage = {
+    const assistantPlaceholder: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
       content: '',
@@ -197,21 +196,33 @@ export function useChat(userId?: string) {
       reactions: [],
     };
 
-    setMessages(prev => [...prev, assistantMessage]);
+    const messagesWithPlaceholder = [...currentMessages, userMessage, assistantPlaceholder];
+    const conversationForAI = [...currentMessages, userMessage]
+      .slice(-MAX_CONTEXT_MESSAGES)
+      .map(toConversationMessage);
+
+    setMessages(messagesWithPlaceholder);
+    setIsLoading(true);
+
+    if (userId) {
+      void saveMessageToDB(userId, userMessage).then((dbId) => {
+        if (!dbId) return;
+        setMessages((prev) => prev.map((message) => (
+          message.id === userMessage.id ? { ...message, dbId } : message
+        )));
+      });
+    }
 
     try {
       abortRef.current = new AbortController();
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const conversationForAI = messagesWithUser.slice(-MAX_CONTEXT_MESSAGES).map(toPersistedMessage);
-
+      const authHeaders = await getAuthHeader();
       const response = await fetch(`${supabaseUrl}/functions/v1/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
+          ...authHeaders,
         },
         body: JSON.stringify({
           messages: conversationForAI,
@@ -223,7 +234,9 @@ export function useChat(userId?: string) {
 
       if (!response.ok) throw new Error('Failed to get response');
 
-      const reader = response.body!.getReader();
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Missing response stream');
+
       const decoder = new TextDecoder();
       let fullText = '';
       let buffer = '';
@@ -233,41 +246,43 @@ export function useChat(userId?: string) {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('
-');
+        const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.text) {
-                fullText += parsed.text;
-                setMessages(prev => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = {
-                    ...updated[updated.length - 1],
-                    content: fullText,
-                  };
-                  return updated;
-                });
-              }
-            } catch {
-              // skip
-            }
+          if (!line.startsWith('data: ')) continue;
+
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (!parsed.text) continue;
+
+            fullText += parsed.text;
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                content: fullText,
+              };
+              return updated;
+            });
+          } catch {
+            // Ignore malformed stream chunks.
           }
         }
       }
 
-      assistantMessage.content = fullText;
       if (userId) {
-        const assistantDbId = await saveMessageToDB(userId, assistantMessage);
+        const assistantDbId = await saveMessageToDB(userId, { ...assistantPlaceholder, content: fullText });
         if (assistantDbId) {
-          setMessages(prev => {
+          setMessages((prev) => {
             const updated = [...prev];
-            updated[updated.length - 1] = { ...updated[updated.length - 1], dbId: assistantDbId };
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              dbId: assistantDbId,
+            };
             return updated;
           });
         }
@@ -275,7 +290,8 @@ export function useChat(userId?: string) {
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         const errorContent = 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲';
-        setMessages(prev => {
+
+        setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1] = {
             ...updated[updated.length - 1],
@@ -284,9 +300,8 @@ export function useChat(userId?: string) {
           return updated;
         });
 
-        assistantMessage.content = errorContent;
         if (userId) {
-          await saveMessageToDB(userId, assistantMessage);
+          await saveMessageToDB(userId, { ...assistantPlaceholder, content: errorContent });
         }
       }
     } finally {
@@ -301,23 +316,24 @@ export function useChat(userId?: string) {
     } else {
       localStorage.removeItem(STORAGE_KEY);
     }
+
     setMessages([]);
   }, [userId]);
 
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
-    setMessages(prev => prev.map(msg => {
-      if (msg.id !== messageId) return msg;
-      const reactions = msg.reactions || [];
-      const hasReaction = reactions.includes(emoji);
-      const newReactions = hasReaction
-        ? reactions.filter(r => r !== emoji)
+    setMessages((prev) => prev.map((message) => {
+      if (message.id !== messageId) return message;
+
+      const reactions = message.reactions || [];
+      const nextReactions = reactions.includes(emoji)
+        ? reactions.filter((reaction) => reaction !== emoji)
         : [...reactions, emoji];
 
-      if (msg.dbId) {
-        void updateMessageInDB(msg.dbId, { reactions: newReactions });
+      if (message.dbId) {
+        void updateMessageInDB(message.dbId, { reactions: nextReactions });
       }
 
-      return { ...msg, reactions: newReactions };
+      return { ...message, reactions: nextReactions };
     }));
   }, []);
 
