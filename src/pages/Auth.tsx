@@ -53,6 +53,7 @@ const Auth = () => {
     });
     if (result.error) {
       toast.error(result.error.message || 'Google sign-in failed');
+      return;
     }
     if (result.redirected) return;
     navigate('/chat', { replace: true });

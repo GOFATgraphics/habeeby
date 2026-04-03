@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index.tsx";
 import Chat from "./pages/Chat.tsx";
 import Auth from "./pages/Auth.tsx";
@@ -27,6 +28,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
+      <ErrorBoundary>
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
@@ -40,6 +42,7 @@ const App = () => (
           </Routes>
         </TooltipProvider>
       </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   </QueryClientProvider>
 );

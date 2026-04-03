@@ -3,6 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Trash2, MessageSquare, Mic, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { VoiceOrb } from '@/components/VoiceOrb';
@@ -30,13 +41,8 @@ const Chat = () => {
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastSpokenIdRef = useRef<string | null>(null);
   const userData = getUserData();
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/auth', { replace: true });
-    }
-  }, [authLoading, user, navigate]);
 
   useEffect(() => {
     if (!userData) setShowOnboarding(true);
@@ -50,7 +56,13 @@ const Chat = () => {
     if (mode !== 'voice' || isLoading || messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage.role === 'assistant' && lastMessage.content && !isAISpeaking) {
+    if (
+      lastMessage.role === 'assistant' &&
+      lastMessage.content &&
+      !isAISpeaking &&
+      lastMessage.id !== lastSpokenIdRef.current
+    ) {
+      lastSpokenIdRef.current = lastMessage.id;
       void speakResponse(lastMessage.content, lastMessage.id);
     }
   }, [mode, isLoading, messages, isAISpeaking, speakResponse]);
@@ -129,9 +141,27 @@ const Chat = () => {
           </div>
 
           {messages.length > 0 && (
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive" onClick={clearHistory}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear conversation?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all messages in this conversation. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={clearHistory} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Clear all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
 
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={handleSignOut}>

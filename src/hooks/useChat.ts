@@ -101,10 +101,11 @@ async function saveMessageToDB(userId: string, message: ChatMessage): Promise<st
 }
 
 async function updateMessageInDB(dbId: string, updates: { content?: string; reactions?: string[] }) {
-  await supabase
+  const { error } = await supabase
     .from('messages')
     .update(updates)
     .eq('id', dbId);
+  if (error) throw error;
 }
 
 export function useChat(userId?: string) {
@@ -113,26 +114,32 @@ export function useChat(userId?: string) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const streamingTextRef = useRef('');
+  const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
   useEffect(() => {
+    let mounted = true;
+
     if (!userId) {
       try {
         const stored = localStorage.getItem(STORAGE_KEY);
-        setMessages(stored ? JSON.parse(stored) : []);
+        if (mounted) setMessages(stored ? JSON.parse(stored) : []);
       } catch {
-        setMessages([]);
+        if (mounted) setMessages([]);
       }
-      setIsLoadingHistory(false);
-      return;
+      if (mounted) setIsLoadingHistory(false);
+      return () => { mounted = false; };
     }
 
     setIsLoadingHistory(true);
 
     void loadMessagesFromDB(userId).then(async (dbMessages) => {
+      if (!mounted) return;
+
       if (dbMessages.length > 0) {
         setMessages(dbMessages);
         localStorage.removeItem(STORAGE_KEY);
@@ -143,20 +150,19 @@ export function useChat(userId?: string) {
       try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (!stored) {
-          setMessages([]);
-          setIsLoadingHistory(false);
+          if (mounted) { setMessages([]); setIsLoadingHistory(false); }
           return;
         }
 
         const localMessages: ChatMessage[] = JSON.parse(stored);
         if (localMessages.length === 0) {
-          setMessages([]);
-          setIsLoadingHistory(false);
+          if (mounted) { setMessages([]); setIsLoadingHistory(false); }
           return;
         }
 
         const migratedMessages: ChatMessage[] = [];
         for (const message of localMessages) {
+          if (!mounted) return;
           if (!message.content) continue;
           const dbId = await saveMessageToDB(userId, message);
           migratedMessages.push({ ...message, dbId: dbId || undefined });
@@ -164,20 +170,24 @@ export function useChat(userId?: string) {
 
         // Prime message_count so the next send triggers a memory summary
         // of the migrated history, giving the AI full context immediately.
-        if (migratedMessages.length > 0) {
+        if (mounted && migratedMessages.length > 0) {
           await supabase
             .from('profiles')
             .upsert({ user_id: userId, message_count: 9, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
         }
 
-        setMessages(migratedMessages);
-        localStorage.removeItem(STORAGE_KEY);
+        if (mounted) {
+          setMessages(migratedMessages);
+          localStorage.removeItem(STORAGE_KEY);
+        }
       } catch {
-        setMessages([]);
+        if (mounted) setMessages([]);
       } finally {
-        setIsLoadingHistory(false);
+        if (mounted) setIsLoadingHistory(false);
       }
     });
+
+    return () => { mounted = false; };
   }, [userId]);
 
   useEffect(() => {
@@ -218,9 +228,14 @@ export function useChat(userId?: string) {
     if (userId) {
       void saveMessageToDB(userId, userMessage).then((dbId) => {
         if (!dbId) return;
-        setMessages((prev) => prev.map((message) => (
-          message.id === userMessage.id ? { ...message, dbId } : message
-        )));
+        setMessages((prev) => prev.map((message) => {
+          if (message.id !== userMessage.id) return message;
+          // Persist any reactions the user added before the dbId arrived.
+          if (message.reactions && message.reactions.length > 0) {
+            void updateMessageInDB(dbId, { reactions: message.reactions });
+          }
+          return { ...message, dbId };
+        }));
       });
     }
 
@@ -251,6 +266,17 @@ export function useChat(userId?: string) {
       const decoder = new TextDecoder();
       let fullText = '';
       let buffer = '';
+      streamingTextRef.current = '';
+
+      const flushStreamingText = () => {
+        const text = streamingTextRef.current;
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...updated[updated.length - 1], content: text };
+          return updated;
+        });
+        rafIdRef.current = null;
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -271,19 +297,24 @@ export function useChat(userId?: string) {
             if (!parsed.text) continue;
 
             fullText += parsed.text;
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...updated[updated.length - 1],
-                content: fullText,
-              };
-              return updated;
-            });
+            streamingTextRef.current = fullText;
+
+            // Throttle React re-renders to once per animation frame.
+            if (!rafIdRef.current) {
+              rafIdRef.current = requestAnimationFrame(flushStreamingText);
+            }
           } catch {
             // Ignore malformed stream chunks.
           }
         }
       }
+
+      // Cancel any pending frame and do a final synchronous flush.
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      flushStreamingText();
 
       if (userId) {
         const assistantDbId = await saveMessageToDB(userId, { ...assistantPlaceholder, content: fullText });
@@ -332,16 +363,25 @@ export function useChat(userId?: string) {
   }, [userId]);
 
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
+    let previousReactions: string[] = [];
+    let targetDbId: string | undefined;
+
     setMessages((prev) => prev.map((message) => {
       if (message.id !== messageId) return message;
 
-      const reactions = message.reactions || [];
-      const nextReactions = reactions.includes(emoji)
-        ? reactions.filter((reaction) => reaction !== emoji)
-        : [...reactions, emoji];
+      previousReactions = message.reactions || [];
+      targetDbId = message.dbId;
+      const nextReactions = previousReactions.includes(emoji)
+        ? previousReactions.filter((r) => r !== emoji)
+        : [...previousReactions, emoji];
 
-      if (message.dbId) {
-        void updateMessageInDB(message.dbId, { reactions: nextReactions });
+      if (targetDbId) {
+        updateMessageInDB(targetDbId, { reactions: nextReactions }).catch(() => {
+          // Rollback the optimistic update if the DB write failed.
+          setMessages((cur) => cur.map((m) =>
+            m.id === messageId ? { ...m, reactions: previousReactions } : m
+          ));
+        });
       }
 
       return { ...message, reactions: nextReactions };

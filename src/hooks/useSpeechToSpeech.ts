@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 
+const ELEVENLABS_VOICE_ID = import.meta.env.VITE_ELEVENLABS_VOICE_ID ?? 'JBFqnCBsd6RMkjVDRZzb';
+
 function getEnvConfig() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -18,6 +20,7 @@ export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speakingMessageIdRef = useRef<string | null>(null);
 
   const startListening = useCallback(async () => {
     try {
@@ -85,13 +88,18 @@ export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void
     });
   }, [sendMessage]);
 
-  const speakResponse = useCallback(async (text: string, _messageId: string) => {
+  const speakResponse = useCallback(async (text: string, messageId: string) => {
     const { supabaseUrl, supabaseKey } = getEnvConfig();
+
+    // Deduplicate: don't re-speak a message that is already playing.
+    if (speakingMessageIdRef.current === messageId) return;
 
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
+
+    speakingMessageIdRef.current = messageId;
 
     try {
       setIsAISpeaking(true);
@@ -103,7 +111,7 @@ export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void
           apikey: supabaseKey,
           Authorization: `Bearer ${supabaseKey}`,
         },
-        body: JSON.stringify({ text, voiceId: 'JBFqnCBsd6RMkjVDRZzb' }),
+        body: JSON.stringify({ text, voiceId: ELEVENLABS_VOICE_ID }),
       });
 
       if (!response.ok) {
@@ -117,6 +125,7 @@ export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void
       audioRef.current = audio;
 
       audio.onended = () => {
+        speakingMessageIdRef.current = null;
         setIsAISpeaking(false);
         URL.revokeObjectURL(audioUrl);
       };
@@ -124,6 +133,7 @@ export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void
       await audio.play();
     } catch (err) {
       console.error('TTS error:', err);
+      speakingMessageIdRef.current = null;
       setIsAISpeaking(false);
     }
   }, []);
@@ -133,6 +143,7 @@ export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void
       audioRef.current.pause();
       audioRef.current = null;
     }
+    speakingMessageIdRef.current = null;
     setIsAISpeaking(false);
   }, []);
 
