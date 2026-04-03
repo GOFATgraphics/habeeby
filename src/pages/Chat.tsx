@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, MessageSquare, Mic, LogOut, Home } from 'lucide-react';
+import { Trash2, Mic, LogOut, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -119,26 +119,15 @@ const Chat = () => {
         </div>
 
         <div className="flex items-center gap-1">
-          <div className="mr-1 flex rounded-full bg-muted/50 p-0.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 rounded-full px-2.5 text-xs transition-all ${mode === 'text' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
-              onClick={() => setMode('text')}
-            >
-              <MessageSquare className="mr-1 h-3 w-3" />
-              Text
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 rounded-full px-2.5 text-xs transition-all ${mode === 'voice' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
-              onClick={() => setMode('voice')}
-            >
-              <Mic className="mr-1 h-3 w-3" />
-              Voice
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`h-8 w-8 rounded-full transition-all ${mode === 'voice' ? 'bg-primary/20 text-primary glow-cyan' : 'text-muted-foreground hover:text-primary'}`}
+            onClick={() => setMode(mode === 'voice' ? 'text' : 'voice')}
+            title={mode === 'voice' ? 'Switch to text' : 'Switch to voice'}
+          >
+            <Mic className="h-3.5 w-3.5" />
+          </Button>
 
           {messages.length > 0 && (
             <AlertDialog>
