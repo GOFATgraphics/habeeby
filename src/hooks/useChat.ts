@@ -168,17 +168,27 @@ export function useChat(userId?: string) {
           migratedMessages.push({ ...message, dbId: dbId || undefined });
         }
 
-        // Prime message_count so the next send triggers a memory summary
-        // of the migrated history, giving the AI full context immediately.
-        if (mounted && migratedMessages.length > 0) {
-          await supabase
-            .from('profiles')
-            .upsert({ user_id: userId, message_count: 9, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-        }
-
         if (mounted) {
           setMessages(migratedMessages);
           localStorage.removeItem(STORAGE_KEY);
+        }
+
+        // Immediately generate memory from the migrated conversation so the
+        // AI remembers pre-auth chats from the very first post-auth message.
+        if (mounted && migratedMessages.length > 0) {
+          const conversationForMemory = migratedMessages
+            .filter((m) => m.content)
+            .slice(-MAX_CONTEXT_MESSAGES)
+            .map(toConversationMessage);
+          const authHeaders = await getAuthHeader();
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          void fetch(`${supabaseUrl}/functions/v1/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ messages: conversationForMemory, userId, memoryOnly: true }),
+          }).catch(() => {
+            // Non-critical: AI still has the full message history as context.
+          });
         }
       } catch {
         if (mounted) setMessages([]);

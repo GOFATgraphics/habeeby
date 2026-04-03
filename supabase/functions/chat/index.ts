@@ -173,7 +173,7 @@ serve(async (req) => {
   try {
     const anthropicKey = ensureAnthropicKey();
     const authUser = await getAuthenticatedUser(req);
-    const { messages, userName, userId } = await req.json();
+    const { messages, userName, userId, memoryOnly } = await req.json();
 
     if (!authUser || !userId || authUser.id !== userId) {
       return new Response(JSON.stringify({ error: 'Authenticated user is required' }), {
@@ -191,6 +191,16 @@ serve(async (req) => {
 
     const conversation = messages as ConversationMessage[];
     const profile = await getOrCreateProfile(userId);
+
+    // Memory-only mode: generate/update memory without sending an AI response.
+    // Used immediately after migrating guest messages to DB.
+    if (memoryOnly === true) {
+      await updateMemory(userId, conversation, profile.habibi_memory || '');
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const systemPrompt = userName
       ? `${HABIBI_SYSTEM_PROMPT}\n\nThe user's name is ${userName}. Use their name occasionally to make the conversation personal.`
       : HABIBI_SYSTEM_PROMPT;
