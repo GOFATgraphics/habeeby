@@ -1,5 +1,16 @@
 import { useState, useRef, useCallback } from 'react';
 
+function getEnvConfig() {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Backend configuration is missing');
+  }
+
+  return { supabaseUrl, supabaseKey };
+}
+
 export function useVoice() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -7,9 +18,6 @@ export function useVoice() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   const startRecording = useCallback(async (): Promise<void> => {
     try {
@@ -31,6 +39,8 @@ export function useVoice() {
   }, []);
 
   const stopRecording = useCallback(async (): Promise<string> => {
+    const { supabaseUrl, supabaseKey } = getEnvConfig();
+
     return new Promise((resolve, reject) => {
       const mediaRecorder = mediaRecorderRef.current;
       if (!mediaRecorder) {
@@ -41,8 +51,6 @@ export function useVoice() {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setIsRecording(false);
-
-        // Stop all tracks
         mediaRecorder.stream.getTracks().forEach(t => t.stop());
 
         try {
@@ -52,13 +60,16 @@ export function useVoice() {
           const response = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-stt`, {
             method: 'POST',
             headers: {
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`,
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
             },
             body: formData,
           });
 
-          if (!response.ok) throw new Error('STT failed');
+          if (!response.ok) {
+            const payload = await response.text();
+            throw new Error(payload || 'STT failed');
+          }
 
           const data = await response.json();
           resolve(data.text || '');
@@ -69,10 +80,11 @@ export function useVoice() {
 
       mediaRecorder.stop();
     });
-  }, [supabaseUrl, supabaseKey]);
+  }, []);
 
   const playTTS = useCallback(async (text: string, messageId: string) => {
-    // Stop current audio if playing
+    const { supabaseUrl, supabaseKey } = getEnvConfig();
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -92,13 +104,16 @@ export function useVoice() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify({ text, voiceId: 'JBFqnCBsd6RMkjVDRZzb' }),
       });
 
-      if (!response.ok) throw new Error('TTS failed');
+      if (!response.ok) {
+        const payload = await response.text();
+        throw new Error(payload || 'TTS failed');
+      }
 
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -117,7 +132,7 @@ export function useVoice() {
       setIsPlaying(false);
       setPlayingMessageId(null);
     }
-  }, [supabaseUrl, supabaseKey, playingMessageId]);
+  }, [playingMessageId]);
 
   return {
     isRecording,

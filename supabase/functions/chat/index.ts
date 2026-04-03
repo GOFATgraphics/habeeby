@@ -28,45 +28,92 @@ PERSONALITY RULES:
 15. Never discuss politics, sectarian debates, or controversial fiqh issues. Redirect to unity and core faith.`;
 
 const MEMORY_UPDATE_PROMPT = `You are updating a private memory file for Habibi, an Islamic AI companion. Based on the conversation below and the existing memory, write an updated memory briefing. Be warm, specific, and personal. Include: the user's name, their emotional patterns and current struggles, their spiritual goals and progress, important people in their life, any situations they are navigating, their communication style, and anything Habibi should remember or follow up on. Write it as a flowing paragraph, not bullet points. Preserve everything important from the existing memory and add new details from the conversation.`;
+const MAX_CONTEXT_MESSAGES = 6;
+const MEMORY_UPDATE_INTERVAL = 10;
+
+type ConversationMessage = {
+  role: string;
+  content: string;
+  replyToContent?: string;
+  replyToRole?: string;
+};
 
 function getSupabaseAdmin() {
   return createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
+}
+
+function ensureAnthropicKey() {
+  const key = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!key) {
+    throw new Error('ANTHROPIC_API_KEY is not configured');
+  }
+  return key;
+}
+
+async function getAuthenticatedUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+
+  const token = authHeader.replace('Bearer ', '');
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data.user) {
+    console.error('Failed to validate auth token:', error);
+    return null;
+  }
+
+  return data.user;
 }
 
 async function getOrCreateProfile(userId: string) {
   const supabase = getSupabaseAdmin();
-  
-  // Try by user_id first
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('user_id', userId)
     .maybeSingle();
-  
+
   if (error) {
     console.error('Error fetching profile:', error);
     return { habibi_memory: '', message_count: 0 };
   }
-  
+
   if (!data) {
-    const { data: newProfile } = await supabase
+    const { data: newProfile, error: insertError } = await supabase
       .from('profiles')
       .insert({ device_id: userId, user_id: userId })
       .select()
       .single();
+
+    if (insertError) {
+      console.error('Error creating profile:', insertError);
+      return { habibi_memory: '', message_count: 0 };
+    }
+
     return newProfile || { habibi_memory: '', message_count: 0 };
   }
-  
+
   return data;
 }
 
-async function updateMemory(userId: string, messages: { role: string; content: string }[], existingMemory: string) {
-  const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
-  
-  const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+function formatConversationForMemory(messages: ConversationMessage[]) {
+  return messages
+    .map((message) => {
+      const replyContext = message.replyToContent
+        ? ` (replying to ${message.replyToRole === 'assistant' ? 'Habibi' : 'user'}: ${message.replyToContent})`
+        : '';
+      return `${message.role}${replyContext}: ${message.content}`;
+    })
+    .join('\n');
+}
+
+async function updateMemory(userId: string, messages: ConversationMessage[], existingMemory: string) {
+  const anthropicKey = ensureAnthropicKey();
+  const conversationText = formatConversationForMemory(messages);
   const prompt = existingMemory
     ? `Existing memory:\n${existingMemory}\n\nRecent conversation:\n${conversationText}`
     : `Recent conversation:\n${conversationText}`;
@@ -75,7 +122,7 @@ async function updateMemory(userId: string, messages: { role: string; content: s
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
+        'x-api-key': anthropicKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
@@ -89,21 +136,32 @@ async function updateMemory(userId: string, messages: { role: string; content: s
 
     if (!response.ok) {
       console.error('Memory update API error:', await response.text());
-      return;
+      return false;
     }
 
     const result = await response.json();
     const memoryText = result.content?.[0]?.text || '';
+    if (!memoryText) return false;
 
-    if (memoryText) {
-      const supabase = getSupabaseAdmin();
-      await supabase
-        .from('profiles')
-        .update({ habibi_memory: memoryText, message_count: 0, updated_at: new Date().toISOString() })
-        .eq('user_id', userId);
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        habibi_memory: memoryText,
+        message_count: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Failed to save memory update:', error);
+      return false;
     }
-  } catch (err) {
-    console.error('Memory update failed:', err);
+
+    return true;
+  } catch (error) {
+    console.error('Memory update failed:', error);
+    return false;
   }
 }
 
@@ -113,28 +171,27 @@ serve(async (req) => {
   }
 
   try {
-    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-    if (!ANTHROPIC_API_KEY) {
-      return new Response(JSON.stringify({ error: 'API key not configured' }), {
-        status: 500,
+    const anthropicKey = ensureAnthropicKey();
+    const authUser = await getAuthenticatedUser(req);
+    const { messages, userName, userId } = await req.json();
+
+    if (!authUser || !userId || authUser.id !== userId) {
+      return new Response(JSON.stringify({ error: 'Authenticated user is required' }), {
+        status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const { messages, userName, userId, deviceId } = await req.json();
-
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Messages are required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Support both userId (new auth) and deviceId (legacy)
-    const profileKey = userId || deviceId;
-    const profile = profileKey ? await getOrCreateProfile(profileKey) : { habibi_memory: '', message_count: 0 };
-
-    let systemPrompt = userName
+    const conversation = messages as ConversationMessage[];
+    const profile = await getOrCreateProfile(userId);
+    const systemPrompt = userName
       ? `${HABIBI_SYSTEM_PROMPT}\n\nThe user's name is ${userName}. Use their name occasionally to make the conversation personal.`
       : HABIBI_SYSTEM_PROMPT;
 
@@ -149,15 +206,19 @@ serve(async (req) => {
       });
     }
 
-    const recentMessages = messages.slice(-6).map((m: { role: string; content: string }) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const recentMessages = conversation
+      .slice(-MAX_CONTEXT_MESSAGES)
+      .map((message) => ({
+        role: message.role,
+        content: message.replyToContent
+          ? `Reply context: replying to ${message.replyToRole === 'assistant' ? 'Habibi' : 'user'} who said: "${message.replyToContent}"\n\n${message.content}`
+          : message.content,
+      }));
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
+        'x-api-key': anthropicKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
@@ -179,25 +240,36 @@ serve(async (req) => {
       });
     }
 
-    // Increment message count and trigger memory update if needed
-    if (profileKey) {
-      const newCount = (profile.message_count || 0) + 1;
+    const latestMessage = conversation[conversation.length - 1];
+    if (latestMessage?.role === 'user') {
       const supabase = getSupabaseAdmin();
-      
-      if (newCount >= 10) {
-        updateMemory(profileKey, messages, profile.habibi_memory || '');
+      const newCount = (profile.message_count || 0) + 1;
+
+      if (newCount >= MEMORY_UPDATE_INTERVAL) {
+        const updated = await updateMemory(userId, conversation, profile.habibi_memory || '');
+        if (!updated) {
+          await supabase
+            .from('profiles')
+            .update({ message_count: newCount, updated_at: new Date().toISOString() })
+            .eq('user_id', userId);
+        }
       } else {
         await supabase
           .from('profiles')
-          .update({ message_count: newCount })
-          .eq(userId ? 'user_id' : 'device_id', profileKey);
+          .update({ message_count: newCount, updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
       }
     }
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = response.body!.getReader();
+        const reader = response.body?.getReader();
+        if (!reader) {
+          controller.error(new Error('Missing response body'));
+          return;
+        }
+
         const decoder = new TextDecoder();
         let buffer = '';
 
@@ -211,27 +283,28 @@ serve(async (req) => {
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') continue;
+              if (!line.startsWith('data: ')) continue;
 
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`));
-                  } else if (parsed.type === 'message_stop') {
-                    controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                  }
-                } catch {
-                  // Skip unparseable lines
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`));
+                } else if (parsed.type === 'message_stop') {
+                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                 }
+              } catch {
+                // Ignore malformed stream chunks.
               }
             }
           }
+
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
-        } catch (err) {
-          controller.error(err);
+        } catch (error) {
+          controller.error(error);
         }
       },
     });
@@ -241,7 +314,7 @@ serve(async (req) => {
         ...corsHeaders,
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+        Connection: 'keep-alive',
       },
     });
   } catch (error) {
