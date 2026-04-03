@@ -28,7 +28,7 @@ PERSONALITY RULES:
 15. Never discuss politics, sectarian debates, or controversial fiqh issues. Redirect to unity and core faith.`;
 
 const MEMORY_UPDATE_PROMPT = `You are updating a private memory file for Habibi, an Islamic AI companion. Based on the conversation below and the existing memory, write an updated memory briefing. Be warm, specific, and personal. Include: the user's name, their emotional patterns and current struggles, their spiritual goals and progress, important people in their life, any situations they are navigating, their communication style, and anything Habibi should remember or follow up on. Write it as a flowing paragraph, not bullet points. Preserve everything important from the existing memory and add new details from the conversation.`;
-const MAX_CONTEXT_MESSAGES = 6;
+const MAX_CONTEXT_MESSAGES = 40;
 const MEMORY_UPDATE_INTERVAL = 10;
 
 type ConversationMessage = {
