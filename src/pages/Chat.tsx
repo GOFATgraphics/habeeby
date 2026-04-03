@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, MessageSquare, Mic, LogOut } from 'lucide-react';
+import { Trash2, MessageSquare, Mic, LogOut, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
-import { VoiceOrb } from '@/components/VoiceOrb';
+import { VoiceInterface } from '@/components/VoiceInterface';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ChatMessage as ChatMessageType, useChat, getUserData } from '@/hooks/useChat';
 import { useVoice } from '@/hooks/useVoice';
@@ -25,6 +25,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 const Chat = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, signOut, loading: authLoading } = useAuth();
   const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(user?.id);
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
@@ -38,7 +39,9 @@ const Chat = () => {
     stopSpeaking,
   } = useSpeechToSpeech(sendMessage);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [mode, setMode] = useState<'text' | 'voice'>(
+    (location.state as { mode?: string } | null)?.mode === 'voice' ? 'voice' : 'text'
+  );
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
@@ -161,6 +164,10 @@ const Chat = () => {
             </AlertDialog>
           )}
 
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={() => navigate('/home')}>
+            <Home className="h-3.5 w-3.5" />
+          </Button>
+
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={handleSignOut}>
             <LogOut className="h-3.5 w-3.5" />
           </Button>
@@ -211,29 +218,28 @@ const Chat = () => {
         </div>
       </div>
 
-      <AnimatePresence mode="wait">
-        {mode === 'voice' ? (
-          <motion.div key="voice" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 flex shrink-0 justify-center border-t border-border/50 bg-glass-strong p-6 md:p-8">
-            <VoiceOrb
-              isRecording={isVoiceRecording}
-              isProcessing={isProcessing}
-              isAISpeaking={isAISpeaking}
-              onPress={startListening}
-              onStop={isAISpeaking ? stopSpeaking : stopListening}
-            />
-          </motion.div>
-        ) : (
-          <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 shrink-0">
-            <ChatInput
-              onSend={handleSend}
-              isLoading={isLoading}
-              isRecording={isRecording}
-              onStartRecording={startRecording}
-              onStopRecording={stopRecording}
-              replyTo={replyTo}
-              onClearReply={() => setReplyTo(null)}
-            />
-          </motion.div>
+      <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 shrink-0">
+        <ChatInput
+          onSend={handleSend}
+          isLoading={isLoading}
+          isRecording={isRecording}
+          onStartRecording={startRecording}
+          onStopRecording={stopRecording}
+          replyTo={replyTo}
+          onClearReply={() => setReplyTo(null)}
+        />
+      </motion.div>
+
+      <AnimatePresence>
+        {mode === 'voice' && (
+          <VoiceInterface
+            isRecording={isVoiceRecording}
+            isProcessing={isProcessing}
+            isAISpeaking={isAISpeaking}
+            onStart={startListening}
+            onStop={isAISpeaking ? stopSpeaking : stopListening}
+            onClose={() => setMode('text')}
+          />
         )}
       </AnimatePresence>
 

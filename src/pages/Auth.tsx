@@ -18,7 +18,7 @@ const Auth = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) navigate('/chat', { replace: true });
+    if (!loading && user) navigate('/home', { replace: true });
   }, [user, loading, navigate]);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -56,7 +56,7 @@ const Auth = () => {
       return;
     }
     if (result.redirected) return;
-    navigate('/chat', { replace: true });
+    navigate('/home', { replace: true });
   };
 
   if (loading) {

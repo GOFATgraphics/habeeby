@@ -33,7 +33,7 @@ const Index = () => {
   const { user, loading } = useAuth();
 
   useEffect(() => {
-    if (!loading && user) navigate('/chat', { replace: true });
+    if (!loading && user) navigate('/home', { replace: true });
   }, [user, loading, navigate]);
 
   if (!loading && user) return null;
