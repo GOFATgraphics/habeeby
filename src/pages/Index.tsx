@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Mic, Brain, Zap, Waves } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const features = [
   {
@@ -28,6 +30,13 @@ const features = [
 
 const Index = () => {
   const navigate = useNavigate();
+  const { user, loading } = useAuth();
+
+  useEffect(() => {
+    if (!loading && user) navigate('/chat', { replace: true });
+  }, [user, loading, navigate]);
+
+  if (!loading && user) return null;
 
   return (
     <div className="h-full overflow-y-auto bg-background bg-grid-pattern relative">

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Trash2, MessageSquare, Mic, LogOut } from 'lucide-react';
+import { Trash2, MessageSquare, Mic, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -104,9 +104,6 @@ const Chat = () => {
 
       <header className="safe-top relative z-10 flex shrink-0 items-center justify-between border-b border-border/50 bg-glass-strong px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-full border border-primary/30 bg-primary/10 glow-cyan">
               <span className="text-sm">🌙</span>
