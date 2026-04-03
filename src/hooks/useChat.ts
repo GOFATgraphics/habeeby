@@ -14,7 +14,7 @@ export interface ChatMessage {
 
 const STORAGE_KEY = 'habibi-chat-history';
 const USER_KEY = 'habibi-user';
-const MAX_CONTEXT_MESSAGES = 6;
+const MAX_CONTEXT_MESSAGES = 40;
 
 type ConversationMessage = Pick<ChatMessage, 'role' | 'content' | 'replyToRole' | 'replyToContent'>;
 
@@ -34,6 +34,9 @@ export function saveUserData(data: { name: string; intention: string }) {
 async function getAuthHeader() {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    console.warn('getAuthHeader: no active session, request will be rejected by the server');
+  }
   return {
     apikey: supabaseKey,
     Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,
@@ -157,6 +160,14 @@ export function useChat(userId?: string) {
           if (!message.content) continue;
           const dbId = await saveMessageToDB(userId, message);
           migratedMessages.push({ ...message, dbId: dbId || undefined });
+        }
+
+        // Prime message_count so the next send triggers a memory summary
+        // of the migrated history, giving the AI full context immediately.
+        if (migratedMessages.length > 0) {
+          await supabase
+            .from('profiles')
+            .upsert({ user_id: userId, message_count: 9, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
         }
 
         setMessages(migratedMessages);

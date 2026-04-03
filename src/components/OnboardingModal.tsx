@@ -60,6 +60,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="What should I call you?"
+              maxLength={50}
               className="rounded-xl bg-muted/50 border-border/50 focus-visible:ring-primary"
             />
           </div>
@@ -71,6 +72,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
               value={intention}
               onChange={e => setIntention(e.target.value)}
               placeholder="e.g., understand the Quran better"
+              maxLength={200}
               className="rounded-xl bg-muted/50 border-border/50 focus-visible:ring-primary"
             />
           </div>
