@@ -7,21 +7,28 @@ import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { VoiceOrb } from '@/components/VoiceOrb';
 import { OnboardingModal } from '@/components/OnboardingModal';
-import { useChat, getUserData } from '@/hooks/useChat';
+import { ChatMessage as ChatMessageType, useChat, getUserData } from '@/hooks/useChat';
 import { useVoice } from '@/hooks/useVoice';
 import { useSpeechToSpeech } from '@/hooks/useSpeechToSpeech';
 import { useAuth } from '@/hooks/useAuth';
 
 const Chat = () => {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading: authLoading } = useAuth();
   const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(user?.id);
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
   const speechToSpeech = useSpeechToSpeech(sendMessage);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userData = getUserData();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/auth', { replace: true });
+    }
+  }, [authLoading, user, navigate]);
 
   useEffect(() => {
     if (!userData) setShowOnboarding(true);
@@ -35,16 +42,16 @@ const Chat = () => {
     if (mode === 'voice' && !isLoading && messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg.role === 'assistant' && lastMsg.content && !speechToSpeech.isAISpeaking) {
-        speechToSpeech.speakResponse(lastMsg.content, lastMsg.id);
+        void speechToSpeech.speakResponse(lastMsg.content, lastMsg.id);
       }
     }
-  }, [isLoading, messages.length]);
+  }, [mode, isLoading, messages, speechToSpeech]);
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
     const u = getUserData();
     if (u) {
-      sendMessage(`Assalamu Alaikum! My name is ${u.name}. ${u.intention}`);
+      void sendMessage(`Assalamu Alaikum! My name is ${u.name}. ${u.intention}`);
     }
   };
 
@@ -53,7 +60,16 @@ const Chat = () => {
     navigate('/');
   };
 
-  if (isLoadingHistory) {
+  const handleReply = (message: ChatMessageType) => {
+    setReplyTo(message);
+  };
+
+  const handleSend = async (content: string) => {
+    await sendMessage(content, replyTo);
+    setReplyTo(null);
+  };
+
+  if (authLoading || isLoadingHistory) {
     return (
       <div className="h-full flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -63,6 +79,8 @@ const Chat = () => {
       </div>
     );
   }
+
+  if (!user) return null;
 
   return (
     <div className="flex flex-col h-full bg-background bg-grid-pattern relative overflow-hidden">
@@ -141,6 +159,7 @@ const Chat = () => {
               isPlaying={playingMessageId === message.id}
               onPlayTTS={playTTS}
               onReact={toggleReaction}
+              onReply={handleReply}
             />
           ))}
 
@@ -174,7 +193,15 @@ const Chat = () => {
           </motion.div>
         ) : (
           <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="relative z-10 flex-shrink-0 safe-bottom">
-            <ChatInput onSend={sendMessage} isLoading={isLoading} isRecording={isRecording} onStartRecording={startRecording} onStopRecording={stopRecording} />
+            <ChatInput
+              onSend={handleSend}
+              isLoading={isLoading}
+              isRecording={isRecording}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              replyTo={replyTo}
+              onClearReply={() => setReplyTo(null)}
+            />
           </motion.div>
         )}
       </AnimatePresence>

@@ -29,7 +29,7 @@ const Auth = () => {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: window.location.origin },
+          options: { emailRedirectTo: `${window.location.origin}/auth` },
         });
         if (error) throw error;
         toast.success('Check your email to confirm your account!');
@@ -46,12 +46,16 @@ const Auth = () => {
 
   const handleGoogleAuth = async () => {
     const result = await lovable.auth.signInWithOAuth('google', {
-      redirect_uri: window.location.origin,
+      redirect_uri: `${window.location.origin}/auth`,
+      extraParams: {
+        prompt: 'select_account',
+      },
     });
     if (result.error) {
-      toast.error('Google sign-in failed');
+      toast.error(result.error.message || 'Google sign-in failed');
     }
     if (result.redirected) return;
+    navigate('/chat');
   };
 
   if (loading) {
@@ -87,9 +91,8 @@ const Auth = () => {
           </p>
         </div>
 
-        {/* Google Sign In */}
         <Button
-          onClick={handleGoogleAuth}
+          onClick={() => void handleGoogleAuth()}
           variant="outline"
           className="w-full rounded-xl mb-4 border-border/50 hover:bg-muted/50 transition-all"
         >
@@ -111,7 +114,6 @@ const Auth = () => {
           </div>
         </div>
 
-        {/* Email/Password Form */}
         <form onSubmit={handleEmailAuth} className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="email" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Email</Label>
