@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
+const ELEVENLABS_VOICE_ID = import.meta.env.VITE_ELEVENLABS_VOICE_ID ?? 'JBFqnCBsd6RMkjVDRZzb';
+
 function getEnvConfig() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -113,7 +115,7 @@ export function useVoice() {
           apikey: supabaseKey,
           Authorization: `Bearer ${supabaseKey}`,
         },
-        body: JSON.stringify({ text, voiceId: 'JBFqnCBsd6RMkjVDRZzb' }),
+        body: JSON.stringify({ text, voiceId: ELEVENLABS_VOICE_ID }),
       });
 
       if (!response.ok) {

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence, PanInfo } from 'framer-motion';
 import { Volume2, VolumeX, SmilePlus, Reply } from 'lucide-react';
 import { ChatMessage as ChatMessageType } from '@/hooks/useChat';
@@ -16,7 +16,7 @@ interface ChatMessageProps {
   onReply: (message: ChatMessageType) => void;
 }
 
-export function ChatMessage({ message, isPlaying, onPlayTTS, onReact, onReply }: ChatMessageProps) {
+export const ChatMessage = React.memo(function ChatMessage({ message, isPlaying, onPlayTTS, onReact, onReply }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [showPicker, setShowPicker] = useState(false);
   const [swipeX, setSwipeX] = useState(0);
@@ -75,11 +75,22 @@ export function ChatMessage({ message, isPlaying, onPlayTTS, onReact, onReply }:
     setSwipeX(0);
   }, []);
 
-  const formatContent = (text: string) => {
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-primary font-semibold">$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em class="text-secondary">$1</em>')
-      .replace(/\n/g, '<br/>');
+  const formatContent = (text: string): React.ReactNode[] => {
+    const nodes: React.ReactNode[] = [];
+    // Split on bold (**…**), italic (*…*), and newlines in one pass.
+    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|\n)/g);
+    parts.forEach((part, i) => {
+      if (part === '\n') {
+        nodes.push(<br key={i} />);
+      } else if (part.startsWith('**') && part.endsWith('**')) {
+        nodes.push(<strong key={i} className="text-primary font-semibold">{part.slice(2, -2)}</strong>);
+      } else if (part.startsWith('*') && part.endsWith('*')) {
+        nodes.push(<em key={i} className="text-secondary">{part.slice(1, -1)}</em>);
+      } else {
+        nodes.push(part);
+      }
+    });
+    return nodes;
   };
 
   const reactions = message.reactions || [];
@@ -145,10 +156,9 @@ export function ChatMessage({ message, isPlaying, onPlayTTS, onReact, onReply }:
               </div>
             )}
 
-            <div
-              className="text-sm leading-relaxed text-foreground/90 break-words"
-              dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-            />
+            <div className="text-sm leading-relaxed text-foreground/90 break-words">
+              {formatContent(message.content)}
+            </div>
 
             <div className="mt-1.5 flex items-center gap-1">
               {!isUser && message.content && (
@@ -246,4 +256,4 @@ export function ChatMessage({ message, isPlaying, onPlayTTS, onReact, onReply }:
       </motion.div>
     </div>
   );
-}
+});

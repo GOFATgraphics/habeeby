@@ -111,7 +111,6 @@
     background: hsl(var(--glass) / 0.85);
     backdrop-filter: blur(40px);
     -webkit-backdrop-filter: blur(40px);
-    border: 1px solid hsl(var(--glass-border) / 0.5);
   }
 
   .glow-cyan {

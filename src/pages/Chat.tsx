@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Trash2, MessageSquare, Mic, LogOut } from 'lucide-react';
+import { Trash2, MessageSquare, Mic, LogOut, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
-import { VoiceOrb } from '@/components/VoiceOrb';
+import { VoiceInterface } from '@/components/VoiceInterface';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ChatMessage as ChatMessageType, useChat, getUserData } from '@/hooks/useChat';
 import { useVoice } from '@/hooks/useVoice';
@@ -14,6 +25,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 const Chat = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, signOut, loading: authLoading } = useAuth();
   const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(user?.id);
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
@@ -27,16 +39,13 @@ const Chat = () => {
     stopSpeaking,
   } = useSpeechToSpeech(sendMessage);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [mode, setMode] = useState<'text' | 'voice'>(
+    (location.state as { mode?: string } | null)?.mode === 'voice' ? 'voice' : 'text'
+  );
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastSpokenIdRef = useRef<string | null>(null);
   const userData = getUserData();
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/auth', { replace: true });
-    }
-  }, [authLoading, user, navigate]);
 
   useEffect(() => {
     if (!userData) setShowOnboarding(true);
@@ -50,7 +59,13 @@ const Chat = () => {
     if (mode !== 'voice' || isLoading || messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage.role === 'assistant' && lastMessage.content && !isAISpeaking) {
+    if (
+      lastMessage.role === 'assistant' &&
+      lastMessage.content &&
+      !isAISpeaking &&
+      lastMessage.id !== lastSpokenIdRef.current
+    ) {
+      lastSpokenIdRef.current = lastMessage.id;
       void speakResponse(lastMessage.content, lastMessage.id);
     }
   }, [mode, isLoading, messages, isAISpeaking, speakResponse]);
@@ -92,9 +107,6 @@ const Chat = () => {
 
       <header className="safe-top relative z-10 flex shrink-0 items-center justify-between border-b border-border/50 bg-glass-strong px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-full border border-primary/30 bg-primary/10 glow-cyan">
               <span className="text-sm">🌙</span>
@@ -129,10 +141,32 @@ const Chat = () => {
           </div>
 
           {messages.length > 0 && (
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive" onClick={clearHistory}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear conversation?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all messages in this conversation. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={clearHistory} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Clear all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
+
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={() => navigate('/home')}>
+            <Home className="h-3.5 w-3.5" />
+          </Button>
 
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground" onClick={handleSignOut}>
             <LogOut className="h-3.5 w-3.5" />
@@ -184,29 +218,28 @@ const Chat = () => {
         </div>
       </div>
 
-      <AnimatePresence mode="wait">
-        {mode === 'voice' ? (
-          <motion.div key="voice" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 flex shrink-0 justify-center border-t border-border/50 bg-glass-strong p-6 md:p-8">
-            <VoiceOrb
-              isRecording={isVoiceRecording}
-              isProcessing={isProcessing}
-              isAISpeaking={isAISpeaking}
-              onPress={startListening}
-              onStop={isAISpeaking ? stopSpeaking : stopListening}
-            />
-          </motion.div>
-        ) : (
-          <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 shrink-0">
-            <ChatInput
-              onSend={handleSend}
-              isLoading={isLoading}
-              isRecording={isRecording}
-              onStartRecording={startRecording}
-              onStopRecording={stopRecording}
-              replyTo={replyTo}
-              onClearReply={() => setReplyTo(null)}
-            />
-          </motion.div>
+      <motion.div key="text" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="safe-bottom relative z-10 shrink-0">
+        <ChatInput
+          onSend={handleSend}
+          isLoading={isLoading}
+          isRecording={isRecording}
+          onStartRecording={startRecording}
+          onStopRecording={stopRecording}
+          replyTo={replyTo}
+          onClearReply={() => setReplyTo(null)}
+        />
+      </motion.div>
+
+      <AnimatePresence>
+        {mode === 'voice' && (
+          <VoiceInterface
+            isRecording={isVoiceRecording}
+            isProcessing={isProcessing}
+            isAISpeaking={isAISpeaking}
+            onStart={startListening}
+            onStop={isAISpeaking ? stopSpeaking : stopListening}
+            onClose={() => setMode('text')}
+          />
         )}
       </AnimatePresence>
 
