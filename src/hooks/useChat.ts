@@ -34,6 +34,9 @@ export function saveUserData(data: { name: string; intention: string }) {
 async function getAuthHeader() {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    console.warn('getAuthHeader: no active session, request will be rejected by the server');
+  }
   return {
     apikey: supabaseKey,
     Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,

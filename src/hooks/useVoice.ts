@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { toast } from 'sonner';
 
 function getEnvConfig() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -33,7 +34,12 @@ export function useVoice() {
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.error('Failed to start recording:', err);
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        toast.error('Microphone access denied. Please allow microphone access in your browser settings.');
+      } else {
+        toast.error('Could not access microphone. Please check your device and try again.');
+        console.error('Failed to start recording:', err);
+      }
       throw err;
     }
   }, []);
