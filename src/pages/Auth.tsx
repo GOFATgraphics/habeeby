@@ -18,7 +18,7 @@ const Auth = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) navigate('/chat');
+    if (!loading && user) navigate('/chat', { replace: true });
   }, [user, loading, navigate]);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -55,7 +55,7 @@ const Auth = () => {
       toast.error(result.error.message || 'Google sign-in failed');
     }
     if (result.redirected) return;
-    navigate('/chat');
+    navigate('/chat', { replace: true });
   };
 
   if (loading) {
