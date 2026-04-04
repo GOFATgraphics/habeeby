@@ -505,6 +505,8 @@ serve(async (req) => {
 
         const decoder = new TextDecoder();
         let buffer = '';
+        let responseTagBuffer = '';
+        let insideResponse = false;
 
         try {
           while (true) {
@@ -524,7 +526,32 @@ serve(async (req) => {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: parsed.delta.text })}\n\n`));
+                  let chunk: string = parsed.delta.text;
+
+                  // Strip <response> opening tag
+                  if (!insideResponse) {
+                    responseTagBuffer += chunk;
+                    const openIdx = responseTagBuffer.indexOf('<response>');
+                    if (openIdx !== -1) {
+                      insideResponse = true;
+                      chunk = responseTagBuffer.slice(openIdx + '<response>'.length);
+                      responseTagBuffer = '';
+                    } else if (responseTagBuffer.length > 20) {
+                      // No tag found after 20 chars — just pass through as-is
+                      insideResponse = true;
+                      chunk = responseTagBuffer;
+                      responseTagBuffer = '';
+                    } else {
+                      continue;
+                    }
+                  }
+
+                  // Strip </response> closing tag
+                  const closeIdx = chunk.indexOf('</response>');
+                  if (closeIdx !== -1) chunk = chunk.slice(0, closeIdx);
+
+                  if (!chunk) continue;
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
                 } else if (parsed.type === 'message_stop') {
                   controller.enqueue(encoder.encode('data: [DONE]\n\n'));
                 }
