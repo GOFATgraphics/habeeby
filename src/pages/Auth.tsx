@@ -42,10 +42,14 @@ const Auth = () => {
   };
 
   const handleGoogleAuth = async () => {
+    const redirectTo = import.meta.env.VITE_APP_URL
+      ? `${import.meta.env.VITE_APP_URL}/auth`
+      : `${window.location.origin}/auth`;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth`,
+        redirectTo,
         queryParams: { prompt: 'select_account' },
       },
     });
