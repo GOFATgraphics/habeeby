@@ -337,7 +337,7 @@ serve(async (req) => {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 1024,
+      max_tokens: 8096,
       system: systemPrompt,
       messages: messages.slice(-40),
       stream: true,

@@ -72,7 +72,12 @@ export const ChatMessage = React.memo(function ChatMessage({ message, isPlaying,
 
   const formatContent = (text: string): React.ReactNode[] => {
     const nodes: React.ReactNode[] = [];
-    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|\n)/g);
+    // Strip <inner_thoughts> blocks and <response> wrapper tags added by the system prompt
+    const cleaned = text
+      .replace(/<inner_thoughts>[\s\S]*?<\/inner_thoughts>/g, '')
+      .replace(/<\/?response>/g, '')
+      .trim();
+    const parts = cleaned.split(/(\*\*.*?\*\*|\*.*?\*|\n)/g);
     parts.forEach((part, i) => {
       if (part === '\n') {
         nodes.push(<br key={i} />);
