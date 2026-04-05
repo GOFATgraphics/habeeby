@@ -37,16 +37,24 @@ export function saveUserData(data: { name: string; intention: string }, userId?:
 
 async function getAuthHeader() {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  let { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!session?.access_token) {
-    // Try to refresh the session before giving up
-    const { data } = await supabase.auth.refreshSession();
-    session = data.session;
+  if (!session) {
+    throw new Error('AUTH_REQUIRED');
   }
 
-  if (!session?.access_token) {
-    throw new Error('AUTH_REQUIRED');
+  // Proactively refresh if the token expires within the next 60 seconds
+  // to avoid sending an expired token to the edge function.
+  const expiresAt = (session.expires_at ?? 0) * 1000;
+  if (expiresAt < Date.now() + 60_000) {
+    const { data } = await supabase.auth.refreshSession();
+    if (!data.session?.access_token) {
+      throw new Error('AUTH_REQUIRED');
+    }
+    return {
+      apikey: supabaseKey,
+      Authorization: `Bearer ${data.session.access_token}`,
+    };
   }
 
   return {
