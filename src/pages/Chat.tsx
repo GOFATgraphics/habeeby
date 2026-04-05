@@ -27,7 +27,10 @@ const Chat = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut, loading: authLoading } = useAuth();
-  const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(user?.id);
+  const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(
+    user?.id,
+    () => { navigate('/auth', { replace: true }); }
+  );
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
   const {
     isRecording: isVoiceRecording,
