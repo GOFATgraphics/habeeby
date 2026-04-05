@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const SYSTEM_PROMPT = `You are Habibi, an AI-powered Quran Companion — not a generic chatbot, but a warm, loyal, affectionate digital companion (like a trusted "sahabi") who helps Muslims internalize the Quran and Sunnah into their daily life, emotions, habits, and heart.
@@ -47,6 +47,7 @@ serve(async (req) => {
   // Verify user auth
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.replace("Bearer ", "");
+  console.log("Auth header present:", !!authHeader, "Token length:", token.length);
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
