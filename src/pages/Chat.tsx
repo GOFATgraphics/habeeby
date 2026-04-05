@@ -22,7 +22,6 @@ import { ChatMessage as ChatMessageType, useChat, getUserData } from '@/hooks/us
 import { useVoice } from '@/hooks/useVoice';
 import { useSpeechToSpeech } from '@/hooks/useSpeechToSpeech';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 const Chat = () => {
@@ -31,16 +30,10 @@ const Chat = () => {
   const { user, signOut, loading: authLoading } = useAuth();
   const { messages, isLoading, isLoadingHistory, sendMessage, clearHistory, toggleReaction } = useChat(
     user?.id,
-    async () => {
-      // Verify the session is truly gone before redirecting.
-      // If the user is still authenticated, it was a transient token error —
-      // the chat already shows an error message, so just stay on the page.
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/auth', { replace: true });
-      } else {
-        toast.error('Connection issue — please try again.');
-      }
+    () => {
+      // ProtectedRoute already ensures the user is authenticated.
+      // A 401 here is a transient token issue — just show an error and stay on the page.
+      toast.error('Connection issue — please try again.');
     }
   );
   const { isRecording, playingMessageId, startRecording, stopRecording, playTTS } = useVoice();
