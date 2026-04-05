@@ -37,13 +37,21 @@ export function saveUserData(data: { name: string; intention: string }, userId?:
 
 async function getAuthHeader() {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  const { data: { session } } = await supabase.auth.getSession();
+  let { data: { session } } = await supabase.auth.getSession();
+
   if (!session?.access_token) {
-    console.warn('getAuthHeader: no active session, request will be rejected by the server');
+    // Try to refresh the session before giving up
+    const { data } = await supabase.auth.refreshSession();
+    session = data.session;
   }
+
+  if (!session?.access_token) {
+    throw new Error('AUTH_REQUIRED');
+  }
+
   return {
     apikey: supabaseKey,
-    Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,
+    Authorization: `Bearer ${session.access_token}`,
   };
 }
 
@@ -112,7 +120,7 @@ async function updateMessageInDB(dbId: string, updates: { content?: string; reac
   if (error) throw error;
 }
 
-export function useChat(userId?: string) {
+export function useChat(userId?: string, onAuthRequired?: () => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -272,8 +280,11 @@ export function useChat(userId?: string) {
       });
 
       if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        throw new Error(`HTTP ${response.status}: ${errBody || 'no body'}`);
+        const errBody = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('AUTH_REQUIRED');
+        }
+        throw new Error(errBody.detail || errBody.error || `Server error ${response.status}`);
       }
 
       const reader = response.body?.getReader();
@@ -346,21 +357,24 @@ export function useChat(userId?: string) {
         }
       }
     } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        const errorContent = 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲';
+      const err = error as Error;
+      if (err.name === 'AbortError') return;
 
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
-            content: errorContent,
-          };
-          return updated;
-        });
+      if (err.message === 'AUTH_REQUIRED') {
+        // Remove the placeholder and redirect to sign-in
+        setMessages((prev) => prev.filter((m) => m.id !== assistantPlaceholder.id));
+        onAuthRequired?.();
+        return;
+      }
 
-        if (userId) {
-          await saveMessageToDB(userId, { ...assistantPlaceholder, content: errorContent });
-        }
+      const errorContent = 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲';
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...updated[updated.length - 1], content: errorContent };
+        return updated;
+      });
+      if (userId) {
+        await saveMessageToDB(userId, { ...assistantPlaceholder, content: errorContent });
       }
     } finally {
       setIsLoading(false);
