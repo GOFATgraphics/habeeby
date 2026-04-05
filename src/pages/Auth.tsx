@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { lovable } from '@/integrations/lovable';
 import { toast } from 'sonner';
 
 const Auth = () => {
@@ -43,16 +42,17 @@ const Auth = () => {
   };
 
   const handleGoogleAuth = async () => {
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-      extraParams: { prompt: 'select_account' },
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { prompt: 'select_account' },
+      },
     });
-    if (result.error) {
-      toast.error(result.error.message || 'Google sign-in failed');
-      return;
+    if (error) {
+      toast.error(error.message || 'Google sign-in failed');
     }
-    if (result.redirected) return;
-    navigate('/home', { replace: true });
+    // User is redirected to Google — no further action needed here
   };
 
   if (loading) {
