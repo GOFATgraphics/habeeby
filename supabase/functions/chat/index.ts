@@ -309,8 +309,7 @@ serve(async (req) => {
     },
     body: JSON.stringify({
       model: "claude-opus-4-6",
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
+      max_tokens: 8096,
       system: systemPrompt,
       messages: messages.slice(-40),
       stream: true,
