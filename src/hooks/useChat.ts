@@ -257,7 +257,6 @@ export function useChat(userId?: string) {
         body: JSON.stringify({
           messages: conversationForAI,
           userName: userData?.name,
-          userId,
         }),
         signal: abortRef.current.signal,
       });
@@ -338,7 +337,7 @@ export function useChat(userId?: string) {
       }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        const errorContent = `DEBUG ERROR: ${(error as Error).message}`;
+        const errorContent = 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲';
 
         setMessages((prev) => {
           const updated = [...prev];
