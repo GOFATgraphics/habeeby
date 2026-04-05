@@ -47,6 +47,7 @@ serve(async (req) => {
   // Verify user auth
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.replace("Bearer ", "");
+  console.log("Auth header present:", !!authHeader, "Token length:", token.length);
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!

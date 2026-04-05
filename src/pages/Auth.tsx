@@ -42,18 +42,16 @@ const Auth = () => {
   };
 
   const handleGoogleAuth = async () => {
-    const redirectTo = import.meta.env.VITE_APP_URL
-      ? `${import.meta.env.VITE_APP_URL}/auth`
-      : `${window.location.origin}/auth`;
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo,
-        queryParams: { prompt: 'select_account' },
-      },
+    const result = await lovable.auth.signInWithOAuth("google", {
+      redirect_uri: window.location.origin,
+      extraParams: { prompt: 'select_account' },
     });
-    if (error) toast.error(error.message || 'Google sign-in failed');
+    if (result.error) {
+      toast.error(result.error.message || 'Google sign-in failed');
+      return;
+    }
+    if (result.redirected) return;
+    navigate('/home', { replace: true });
   };
 
   if (loading) {
