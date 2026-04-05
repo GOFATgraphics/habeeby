@@ -1,97 +1,60 @@
 import { useState, useRef, useCallback } from 'react';
+import { useAudioRecording } from './useAudioRecording';
 
 const ELEVENLABS_VOICE_ID = import.meta.env.VITE_ELEVENLABS_VOICE_ID ?? 'JBFqnCBsd6RMkjVDRZzb';
 
 function getEnvConfig() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Backend configuration is missing');
-  }
-
+  if (!supabaseUrl || !supabaseKey) throw new Error('Backend configuration is missing');
   return { supabaseUrl, supabaseKey };
 }
 
 export function useSpeechToSpeech(sendMessage: (content: string) => Promise<void> | void) {
-  const [isRecording, setIsRecording] = useState(false);
+  const { isRecording, startRecording, stopRecording } = useAudioRecording();
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speakingMessageIdRef = useRef<string | null>(null);
 
-  const startListening = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Failed to start recording:', err);
-    }
-  }, []);
+  const startListening = startRecording;
 
   const stopListening = useCallback(async () => {
     const { supabaseUrl, supabaseKey } = getEnvConfig();
-    const mediaRecorder = mediaRecorderRef.current;
-    if (!mediaRecorder) return;
+    setIsProcessing(true);
+    try {
+      const audioBlob = await stopRecording();
 
-    return new Promise<void>((resolve) => {
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        setIsRecording(false);
-        setIsProcessing(true);
-        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
 
-        try {
-          const formData = new FormData();
-          formData.append('audio', audioBlob, 'recording.webm');
+      const sttResponse = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-stt`, {
+        method: 'POST',
+        headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+        body: formData,
+      });
 
-          const sttResponse = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-stt`, {
-            method: 'POST',
-            headers: {
-              apikey: supabaseKey,
-              Authorization: `Bearer ${supabaseKey}`,
-            },
-            body: formData,
-          });
+      if (!sttResponse.ok) {
+        const payload = await sttResponse.text();
+        throw new Error(payload || 'STT failed');
+      }
 
-          if (!sttResponse.ok) {
-            const payload = await sttResponse.text();
-            throw new Error(payload || 'STT failed');
-          }
+      const sttData = await sttResponse.json() as { text?: string };
+      const transcribedText = sttData.text || '';
 
-          const sttData = await sttResponse.json();
-          const transcribedText = sttData.text || '';
-
-          if (transcribedText) {
-            await sendMessage(transcribedText);
-          }
-        } catch (err) {
-          console.error('Speech-to-speech error:', err);
-        } finally {
-          setIsProcessing(false);
-          resolve();
-        }
-      };
-
-      mediaRecorder.stop();
-    });
-  }, [sendMessage]);
+      if (transcribedText) {
+        await sendMessage(transcribedText);
+      }
+    } catch (err) {
+      console.error('Speech-to-speech error:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [stopRecording, sendMessage]);
 
   const speakResponse = useCallback(async (text: string, messageId: string) => {
     const { supabaseUrl, supabaseKey } = getEnvConfig();
 
-    // Deduplicate: don't re-speak a message that is already playing.
     if (speakingMessageIdRef.current === messageId) return;
 
     if (audioRef.current) {

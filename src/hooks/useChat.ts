@@ -86,10 +86,11 @@ async function loadMessagesFromDB(userId: string): Promise<ChatMessage[]> {
     .from('messages')
     .select('*')
     .eq('user_id', userId)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: false })
+    .limit(100);
 
   if (error || !data) return [];
-  return data.map(mapDbMessage);
+  return data.reverse().map(mapDbMessage);
 }
 
 async function saveMessageToDB(userId: string, message: ChatMessage): Promise<string | null> {
