@@ -272,7 +272,10 @@ export function useChat(userId?: string) {
         signal: abortRef.current.signal,
       });
 
-      if (!response.ok) throw new Error('Failed to get response');
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}: ${errBody || 'no body'}`);
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Missing response stream');
@@ -345,7 +348,7 @@ export function useChat(userId?: string) {
       }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        const errorContent = 'Forgive me, ya habibi — I encountered an issue. Please try again. 🤲';
+        const errorContent = `DEBUG ERROR: ${(error as Error).message}`;
 
         setMessages((prev) => {
           const updated = [...prev];
