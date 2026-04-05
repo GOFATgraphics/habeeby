@@ -18,17 +18,21 @@ const MAX_CONTEXT_MESSAGES = 40;
 
 type ConversationMessage = Pick<ChatMessage, 'role' | 'content' | 'replyToRole' | 'replyToContent'>;
 
-export function getUserData(): { name: string; intention: string } | null {
+export function getUserData(userId?: string): { name: string; intention: string } | null {
   try {
     const stored = localStorage.getItem(USER_KEY);
-    return stored ? JSON.parse(stored) : null;
+    if (!stored) return null;
+    const data = JSON.parse(stored);
+    // If a userId is provided and the stored data belongs to a different user, ignore it.
+    if (userId && data.userId && data.userId !== userId) return null;
+    return { name: data.name, intention: data.intention };
   } catch {
     return null;
   }
 }
 
-export function saveUserData(data: { name: string; intention: string }) {
-  localStorage.setItem(USER_KEY, JSON.stringify(data));
+export function saveUserData(data: { name: string; intention: string }, userId?: string) {
+  localStorage.setItem(USER_KEY, JSON.stringify({ ...data, userId }));
 }
 
 async function getAuthHeader() {

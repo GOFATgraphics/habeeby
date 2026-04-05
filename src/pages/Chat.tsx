@@ -45,11 +45,11 @@ const Chat = () => {
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
-  const userData = getUserData();
+  const userData = getUserData(user?.id);
 
   useEffect(() => {
-    if (!userData) setShowOnboarding(true);
-  }, [userData]);
+    if (!authLoading && !userData) setShowOnboarding(true);
+  }, [authLoading, userData]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -243,7 +243,7 @@ const Chat = () => {
         )}
       </AnimatePresence>
 
-      <OnboardingModal open={showOnboarding} onComplete={handleOnboardingComplete} />
+      <OnboardingModal open={showOnboarding} onComplete={handleOnboardingComplete} userId={user?.id} />
     </div>
   );
 };

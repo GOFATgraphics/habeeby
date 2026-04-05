@@ -26,13 +26,15 @@ const Auth = () => {
     setSubmitting(true);
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { data: signUpData, error } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: `${window.location.origin}/auth` },
         });
         if (error) throw error;
-        toast.success('Check your email to confirm your account!');
+        if (!signUpData.session) {
+          toast.success('Check your email to confirm your account!');
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;

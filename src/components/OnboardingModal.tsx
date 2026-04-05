@@ -8,14 +8,15 @@ import { saveUserData } from '@/hooks/useChat';
 interface OnboardingModalProps {
   open: boolean;
   onComplete: () => void;
+  userId?: string;
 }
 
-export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
+export function OnboardingModal({ open, onComplete, userId }: OnboardingModalProps) {
   const [name, setName] = useState('');
   const [intention, setIntention] = useState('');
 
   const handleSubmit = () => {
-    saveUserData({ name: name.trim() || 'Friend', intention: intention.trim() || 'To grow closer to Allah' });
+    saveUserData({ name: name.trim() || 'Friend', intention: intention.trim() || 'To grow closer to Allah' }, userId);
     onComplete();
   };
 
