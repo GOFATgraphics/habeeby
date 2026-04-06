@@ -20,11 +20,10 @@ type ConversationMessage = Pick<ChatMessage, 'role' | 'content' | 'replyToRole' 
 
 export function getUserData(userId?: string): { name: string; intention: string } | null {
   try {
-    const stored = localStorage.getItem(USER_KEY);
+    const key = userId ? `${USER_KEY}-${userId}` : USER_KEY;
+    const stored = localStorage.getItem(key);
     if (!stored) return null;
     const data = JSON.parse(stored);
-    // If a userId is provided and the stored data belongs to a different user, ignore it.
-    if (userId && data.userId && data.userId !== userId) return null;
     return { name: data.name, intention: data.intention };
   } catch {
     return null;
@@ -32,7 +31,8 @@ export function getUserData(userId?: string): { name: string; intention: string 
 }
 
 export function saveUserData(data: { name: string; intention: string }, userId?: string) {
-  localStorage.setItem(USER_KEY, JSON.stringify({ ...data, userId }));
+  const key = userId ? `${USER_KEY}-${userId}` : USER_KEY;
+  localStorage.setItem(key, JSON.stringify(data));
 }
 
 async function getAuthHeader() {
